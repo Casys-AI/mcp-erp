@@ -1,0 +1,42 @@
+{
+  "name": "@casys/mcp-erp",
+  "version": "0.0.1",
+  "description": "ERP-agnostic MCP adapters. Drop-in adapter layer for ERPNext, Dolibarr, and more — designed to be embedded in a multi-tenant MCP server.",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@casys/mcp-server": "jsr:@casys/mcp-server@^0.17.2",
+    "@std/assert": "jsr:@std/assert@^1"
+  },
+  "tasks": {
+    "check": "deno fmt --check . && deno lint . && deno check",
+    "test": "deno test --allow-all"
+  },
+  "publish": {
+    "include": [
+      "mod.ts",
+      "src/**/*.ts",
+      "README.md",
+      "LICENSE"
+    ],
+    "exclude": [
+      "**/*_test.ts",
+      "**/*.test.ts"
+    ]
+  },
+  "lint": {
+    "rules": {
+      "exclude": [
+        "no-explicit-any"
+      ]
+    }
+  },
+  "compilerOptions": {
+    "lib": [
+      "deno.ns",
+      "deno.window",
+      "esnext"
+    ]
+  }
+}
