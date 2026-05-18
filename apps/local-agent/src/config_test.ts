@@ -45,6 +45,23 @@ Deno.test("parseLocalErpAgentConfig parses ERPNext config with bearer endpoint a
   assertEquals(config, expected);
 });
 
+Deno.test("parseLocalErpAgentConfig accepts bearer endpoint auth via header", () => {
+  const config = parseLocalErpAgentConfig({
+    ...validErpnextConfig(),
+    endpointAuth: {
+      type: "bearer",
+      token: "oauth-access-token",
+      via: "header",
+    },
+  });
+
+  assertEquals(config.endpointAuth, {
+    type: "bearer",
+    token: "oauth-access-token",
+    via: "header",
+  });
+});
+
 Deno.test("parseLocalErpAgentConfig parses Dolibarr config with header endpoint auth", () => {
   const config = parseLocalErpAgentConfig({
     relayUrl: "wss://tenant.erp-platform.test/mcp/_tunnel",
@@ -166,6 +183,19 @@ const invalidCases: ReadonlyArray<{
     },
     message:
       "CONFIG_FIELD_INVALID: endpointAuth.token must be a non-empty string",
+  },
+  {
+    name: "endpoint bearer auth via query",
+    raw: {
+      ...validErpnextConfig(),
+      endpointAuth: {
+        type: "bearer",
+        token: "agent-token-0123456789012345678901",
+        via: "query",
+      },
+    },
+    message:
+      "CONFIG_FIELD_INVALID: endpointAuth.via must be one of header; query-mode bearer is rejected because the WebSocket URL is logged by many proxies",
   },
 ];
 

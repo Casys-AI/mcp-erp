@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import type {
   NetworkTransportAuth,
   NetworkTunnelTransport,
@@ -6,8 +6,10 @@ import type {
 import type { ErpAdapter } from "../../../src/adapter.ts";
 import type { ErpConnection } from "../../../src/connection.ts";
 import {
+  LocalErpAgentCliError,
   parseLocalErpAgentCliArgs,
   runLocalErpAgentCli,
+  runLocalErpAgentCliMain,
   waitForLocalErpAgentShutdown,
 } from "./cli.ts";
 import type { LocalErpAgentOptions } from "./local-agent.ts";
@@ -18,6 +20,9 @@ class FakeTransport implements NetworkTunnelTransport {
   }
   send(): void {}
   onMessage(): void {}
+  onOpen(): void {}
+  onClose(): void {}
+  onError(): void {}
   disconnect(): void {}
 }
 
@@ -119,6 +124,66 @@ Deno.test("runLocalErpAgentCli starts local agent from config file", async () =>
 
   await runtime.stop();
   assertEquals(startedAgent.stopped, true);
+});
+
+Deno.test("runLocalErpAgentCli raises CONFIG_FILE_NOT_FOUND for missing config file", async () => {
+  const error = await assertRejects(
+    () =>
+      runLocalErpAgentCli(["--config", "./missing-agent.json"], {
+        readTextFile: () => {
+          throw new Deno.errors.NotFound("missing file");
+        },
+      }),
+    LocalErpAgentCliError,
+  );
+
+  assertEquals(error.code, "CONFIG_FILE_NOT_FOUND");
+  assertEquals(error.context.path, "./missing-agent.json");
+});
+
+Deno.test("runLocalErpAgentCli raises CONFIG_FILE_UNREADABLE for permission denied config file", async () => {
+  const error = await assertRejects(
+    () =>
+      runLocalErpAgentCli(["--config", "./private-agent.json"], {
+        readTextFile: () => {
+          throw new Deno.errors.PermissionDenied("permission denied");
+        },
+      }),
+    LocalErpAgentCliError,
+  );
+
+  assertEquals(error.code, "CONFIG_FILE_UNREADABLE");
+  assertEquals(error.context.path, "./private-agent.json");
+});
+
+Deno.test("runLocalErpAgentCli raises CONFIG_JSON_INVALID for malformed config JSON", async () => {
+  const error = await assertRejects(
+    () =>
+      runLocalErpAgentCli(["--config", "./broken-agent.json"], {
+        readTextFile: () => Promise.resolve("{"),
+      }),
+    LocalErpAgentCliError,
+  );
+
+  assertEquals(error.code, "CONFIG_JSON_INVALID");
+  assertEquals(error.context.path, "./broken-agent.json");
+});
+
+Deno.test("runLocalErpAgentCliMain redacts WebSocket URL bearer tokens before stderr", async () => {
+  const stderr: string[] = [];
+
+  const exitCode = await runLocalErpAgentCliMain(["--config", "./agent.json"], {
+    runCli: () => {
+      throw new Error(
+        "relay refused wss://relay/?access_token=secret123&tenant=tenant_1",
+      );
+    },
+    stderr: (message: string) => stderr.push(message),
+  });
+
+  assertEquals(exitCode, 1);
+  assert(stderr.join("\n").includes("access_token=***"));
+  assert(!stderr.join("\n").includes("secret123"));
 });
 
 Deno.test("waitForLocalErpAgentShutdown stops runtime and resolves on signal", async () => {

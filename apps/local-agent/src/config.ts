@@ -63,7 +63,7 @@ function parseEndpointAuth(raw: unknown): NetworkTransportAuth {
   if (type === "bearer") {
     const via = auth.via === undefined
       ? undefined
-      : requireEnum(auth, "via", "endpointAuth.via", ["header", "query"]);
+      : requireEndpointAuthVia(auth);
     const queryParam = auth.queryParam === undefined
       ? undefined
       : requireNonEmptyString(auth, "queryParam", "endpointAuth.queryParam");
@@ -95,6 +95,16 @@ function parseEndpointAuth(raw: unknown): NetworkTransportAuth {
   throw new Error(
     "CONFIG_FIELD_INVALID: endpointAuth.type must be bearer or headers",
   );
+}
+
+function requireEndpointAuthVia(source: ConfigObject): "header" {
+  const value = requireNonEmptyString(source, "via", "endpointAuth.via");
+  if (value !== "header") {
+    throw new Error(
+      "CONFIG_FIELD_INVALID: endpointAuth.via must be one of header; query-mode bearer is rejected because the WebSocket URL is logged by many proxies",
+    );
+  }
+  return value;
 }
 
 function parseErpConnection(raw: ConfigObject): ErpConnection {
@@ -218,21 +228,6 @@ function requireBoolean(
     throw new Error(`CONFIG_FIELD_INVALID: ${path} must be a boolean`);
   }
   return value;
-}
-
-function requireEnum<T extends string>(
-  source: ConfigObject,
-  property: string,
-  path: string,
-  values: readonly T[],
-): T {
-  const value = requireNonEmptyString(source, property, path);
-  if (!values.includes(value as T)) {
-    throw new Error(
-      `CONFIG_FIELD_INVALID: ${path} must be one of ${values.join(", ")}`,
-    );
-  }
-  return value as T;
 }
 
 function requireUrl(
