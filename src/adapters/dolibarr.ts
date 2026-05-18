@@ -20,7 +20,7 @@ import {
 
 type DolibarrConnection = Extract<ErpConnection, { erpType: "dolibarr" }>;
 
-const TOOLS: ErpToolDefinition[] = [
+const TOOLS: readonly ErpToolDefinition[] = [
   {
     name: "dolibarr.ping",
     description: "Smoke-test the configured Dolibarr connection.",
@@ -32,6 +32,13 @@ const TOOLS: ErpToolDefinition[] = [
   },
 ];
 
+export function getDolibarrToolDefinitions(): ErpToolDefinition[] {
+  return TOOLS.map((tool) => ({
+    ...tool,
+    inputSchema: structuredClone(tool.inputSchema),
+  }));
+}
+
 export function createDolibarrAdapter(
   connection: DolibarrConnection,
 ): ErpAdapter {
@@ -39,7 +46,7 @@ export function createDolibarrAdapter(
     erpType: "dolibarr",
 
     tools(): ErpToolDefinition[] {
-      return TOOLS;
+      return getDolibarrToolDefinitions();
     },
 
     async callTool(
