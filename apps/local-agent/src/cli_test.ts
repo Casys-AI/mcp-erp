@@ -3,6 +3,7 @@ import type {
   NetworkTransportAuth,
   NetworkTunnelTransport,
 } from "@casys/mcp-bridge/adapters/network";
+import { NetworkRelayError } from "@casys/mcp-bridge/adapters/network";
 import type { ErpAdapter } from "../../../src/adapter.ts";
 import type { ErpConnection } from "../../../src/connection.ts";
 import {
@@ -184,6 +185,60 @@ Deno.test("runLocalErpAgentCliMain redacts WebSocket URL bearer tokens before st
   assertEquals(exitCode, 1);
   assert(stderr.join("\n").includes("access_token=***"));
   assert(!stderr.join("\n").includes("secret123"));
+});
+
+Deno.test("runLocalErpAgentCliMain exits 4 when terminal relay closes after startup", async () => {
+  let disposed = 0;
+  const stderr: string[] = [];
+  const terminalError = new NetworkRelayError({
+    code: "TUNNEL_AGENT_DISCONNECTED",
+    context: { closeCode: 4001, reason: "auth rejected" },
+    recovery: "Reconnect the local ERP agent.",
+  });
+
+  const exitCode = await runLocalErpAgentCliMain(["--config", "./agent.json"], {
+    readTextFile: () =>
+      Promise.resolve(JSON.stringify({
+        relayUrl: "wss://acme.erp-platform.test/mcp/_tunnel",
+        endpointAuth: {
+          type: "bearer",
+          token: "oauth-access-token",
+        },
+        tenantId: "tenant_123",
+        erpType: "erpnext",
+        agentId: "agent_1",
+        keyVersion: 1,
+        connection: {
+          erpType: "erpnext",
+          apiUrl: "https://erp.local",
+          apiKey: "key",
+          apiSecret: "secret",
+          sandbox: true,
+        },
+      })),
+    buildAdapter: (connection: ErpConnection) =>
+      Promise.resolve({
+        ...fakeAdapter(connection.erpType),
+        dispose: () => {
+          disposed++;
+          return Promise.resolve();
+        },
+      }),
+    createTransport: () => new FakeTransport(),
+    createAgent: (options: LocalErpAgentOptions) => ({
+      start() {
+        queueMicrotask(() => options.onTerminalError?.(terminalError));
+        return Promise.resolve();
+      },
+      stop() {},
+    }),
+    stderr: (message: string) => stderr.push(message),
+  });
+
+  assertEquals(exitCode, 4);
+  assertEquals(disposed, 1);
+  assert(stderr.join("\n").includes("TUNNEL_AGENT_DISCONNECTED"));
+  assert(stderr.join("\n").includes("closeCode=4001"));
 });
 
 Deno.test("waitForLocalErpAgentShutdown stops runtime and resolves on signal", async () => {

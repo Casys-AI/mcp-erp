@@ -61,6 +61,7 @@ export interface StartedLocalErpAgent {
 }
 
 export interface LocalErpAgentRuntime {
+  readonly terminalError?: Promise<NetworkRelayError>;
   stop(): Promise<void>;
 }
 
@@ -119,6 +120,10 @@ export async function runLocalErpAgentCli(
   const transport = (deps.createTransport ?? createWebSocketTransport)(
     config.endpointAuth,
   );
+  let signalTerminalError: (error: NetworkRelayError) => void = () => {};
+  const terminalError = new Promise<NetworkRelayError>((resolve) => {
+    signalTerminalError = resolve;
+  });
   const agent = (deps.createAgent ?? createLocalAgent)({
     relayUrl: config.relayUrl,
     tenantId: config.tenantId,
@@ -127,6 +132,7 @@ export async function runLocalErpAgentCli(
     keyVersion: config.keyVersion,
     adapter,
     transport,
+    onTerminalError: signalTerminalError,
   });
 
   await agent.start();
@@ -135,6 +141,7 @@ export async function runLocalErpAgentCli(
   );
 
   return {
+    terminalError,
     async stop() {
       agent.stop();
       await adapter.dispose();
@@ -172,15 +179,29 @@ export function waitForLocalErpAgentShutdown(
     "SIGTERM",
   ];
 
-  return new Promise((resolve) => {
-    const stop = () => {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
       for (const signal of signals) {
         removeSignalListener(signal, stop);
       }
-      void runtime.stop().then(resolve);
+    };
+    const stop = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      void runtime.stop().then(resolve, reject);
     };
     for (const signal of signals) {
       addSignalListener(signal, stop);
+    }
+    if (runtime.terminalError) {
+      void runtime.terminalError.then((error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        void runtime.stop().then(() => reject(error), reject);
+      }, reject);
     }
   });
 }
