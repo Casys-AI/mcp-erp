@@ -11,6 +11,7 @@
     "@casys/mcp-bridge": "jsr:@casys/mcp-bridge@^0.3.0",
     "@casys/mcp-bridge/adapters/network": "jsr:@casys/mcp-bridge@^0.3.0/adapters/network",
     "@casys/mcp-server": "jsr:@casys/mcp-server@^0.17.2",
+    "@deno/dnt": "jsr:@deno/dnt@^0.41",
     "@std/assert": "jsr:@std/assert@^1"
   },
   "tasks": {
@@ -30,6 +31,9 @@
       "**/*.test.ts"
     ]
   },
+  "exclude": [
+    "dist-node"
+  ],
   "lint": {
     "rules": {
       "exclude": [
