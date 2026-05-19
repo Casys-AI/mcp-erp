@@ -1,9 +1,10 @@
 name: Publish
 
 # Mirrors the canonical mcp-server/.github/workflows/publish.yml pattern.
-# Triggered on push to main. Publishes @casys/mcp-erp (and any future
-# workspace member) to JSR via the npx jsr publish step. Idempotent —
-# already-published versions are skipped automatically.
+# Triggered on push to main. Publishes @casys/mcp-erp to JSR and npm.
+# npm publish is idempotent: it checks `npm view <pkg>@<ver>` before
+# publishing so already-published versions exit cleanly without masking
+# auth/build/network failures.
 #
 # JSR scope `@casys` is linked to the GitHub org `Casys-AI` via OIDC
 # (id-token: write), so no JSR token is needed in repo secrets.
@@ -27,3 +28,28 @@ jobs:
         run: npx jsr publish
         # Publishes all workspace members whose version isn't already on JSR.
         # Already-published versions are skipped automatically.
+
+  publish-npm-mcp-erp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Build and publish @casys/mcp-erp to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          deno run -A scripts/build-npm.ts
+          cd dist-node
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "${PKG_NAME}@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "Already published: ${PKG_NAME}@${PKG_VERSION} — skipping"
+            exit 0
+          fi
+          npm publish --access public
