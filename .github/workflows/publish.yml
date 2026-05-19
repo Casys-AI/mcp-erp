@@ -1,0 +1,29 @@
+name: Publish
+
+# Mirrors the canonical mcp-server/.github/workflows/publish.yml pattern.
+# Triggered on push to main. Publishes @casys/mcp-erp (and any future
+# workspace member) to JSR via the npx jsr publish step. Idempotent —
+# already-published versions are skipped automatically.
+#
+# JSR scope `@casys` is linked to the GitHub org `Casys-AI` via OIDC
+# (id-token: write), so no JSR token is needed in repo secrets.
+#
+# See docs in erp-platform/docs/runbooks/casys-jsr-publish-flow.md for
+# the canonical release sequence.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish-jsr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Publish all packages to JSR
+        run: npx jsr publish
+        # Publishes all workspace members whose version isn't already on JSR.
+        # Already-published versions are skipped automatically.

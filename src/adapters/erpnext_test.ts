@@ -31,7 +31,10 @@ Deno.test("createErpnextAdapter — ping returns the configured apiUrl", async (
   });
 
   assertEquals((result.content as { ok: boolean }).ok, true);
-  assertEquals((result.content as { apiUrl: string }).apiUrl, "https://erp.example.com");
+  assertEquals(
+    (result.content as { apiUrl: string }).apiUrl,
+    "https://erp.example.com",
+  );
 });
 
 Deno.test("createErpnextAdapter — unknown tool throws UnknownToolError", async () => {
@@ -44,7 +47,11 @@ Deno.test("createErpnextAdapter — unknown tool throws UnknownToolError", async
   });
 
   await assertRejects(
-    () => adapter.callTool("erpnext.nope", {}, { tenantId: "acme", actorSubject: null }),
+    () =>
+      adapter.callTool("erpnext.nope", {}, {
+        tenantId: "acme",
+        actorSubject: null,
+      }),
     UnknownToolError,
     "Unknown erpnext tool: erpnext.nope",
   );

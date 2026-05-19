@@ -27,7 +27,7 @@ import {
 
 type ErpnextConnection = Extract<ErpConnection, { erpType: "erpnext" }>;
 
-const TOOLS: ErpToolDefinition[] = [
+const TOOLS: readonly ErpToolDefinition[] = [
   {
     name: "erpnext.ping",
     description:
@@ -40,6 +40,13 @@ const TOOLS: ErpToolDefinition[] = [
   },
 ];
 
+export function getErpnextToolDefinitions(): ErpToolDefinition[] {
+  return TOOLS.map((tool) => ({
+    ...tool,
+    inputSchema: structuredClone(tool.inputSchema),
+  }));
+}
+
 export function createErpnextAdapter(
   connection: ErpnextConnection,
 ): ErpAdapter {
@@ -47,7 +54,7 @@ export function createErpnextAdapter(
     erpType: "erpnext",
 
     tools(): ErpToolDefinition[] {
-      return TOOLS;
+      return getErpnextToolDefinitions();
     },
 
     async callTool(

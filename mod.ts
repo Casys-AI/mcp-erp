@@ -14,19 +14,11 @@
  */
 
 // ─── Connection (the single seam between platform and adapter) ─────
-export {
-  ERP_TYPES,
-  isKnownErpType,
-} from "./src/connection.ts";
-export type {
-  ErpConnection,
-  ErpType,
-} from "./src/connection.ts";
+export { ERP_TYPES, isKnownErpType } from "./src/connection.ts";
+export type { ErpConnection, ErpType } from "./src/connection.ts";
 
 // ─── Adapter contract ──────────────────────────────────────────────
-export {
-  UnknownToolError,
-} from "./src/adapter.ts";
+export { UnknownToolError } from "./src/adapter.ts";
 export type {
   ErpAdapter,
   ErpAdapterFactory,
@@ -36,10 +28,8 @@ export type {
 } from "./src/adapter.ts";
 
 // ─── Registry & adapters ───────────────────────────────────────────
-export {
-  buildAdapter,
-  REGISTERED_ERP_TYPES,
-} from "./src/registry.ts";
+export { buildAdapter, REGISTERED_ERP_TYPES } from "./src/registry.ts";
+export { getErpToolDefinitions } from "./src/tool-catalog.ts";
 
 // Direct exports for callers that want to skip the registry indirection
 // (typed factories, useful for DI in tests).
