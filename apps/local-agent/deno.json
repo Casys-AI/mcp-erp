@@ -10,8 +10,8 @@
     "check": "deno fmt --check . && deno lint . && deno check && deno test"
   },
   "imports": {
-    "@casys/mcp-bridge": "../../../mcp-server/packages/bridge/src/mod.ts",
-    "@casys/mcp-bridge/adapters/network": "../../../mcp-server/packages/bridge/src/adapters/network/mod.ts",
+    "@casys/mcp-bridge": "jsr:@casys/mcp-bridge@^0.3.0",
+    "@casys/mcp-bridge/adapters/network": "jsr:@casys/mcp-bridge@^0.3.0/adapters/network",
     "@std/assert": "jsr:@std/assert@^1"
   },
   "compilerOptions": {
