@@ -1,6 +1,6 @@
 {
   "name": "@casys/mcp-erp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "ERP-agnostic MCP adapters. Drop-in adapter layer for ERPNext, Dolibarr, and more — designed to be embedded in a multi-tenant MCP server.",
   "exports": {
     ".": "./mod.ts",
