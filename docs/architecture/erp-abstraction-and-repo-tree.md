@@ -1,6 +1,7 @@
 # ERP abstraction and repository tree
 
-Status: working architecture note, created before implementation.
+Status: working architecture note, updated after the first ERPNext/Dolibarr
+read-only tools and MCP projection landed.
 
 ## Goal
 
@@ -9,14 +10,20 @@ every ERP has the same data model or lifecycle. The package should keep
 provider-native behavior visible, then add normalized tools only where the
 mapping is proven by at least two adapters.
 
-The current package is still scaffold-only:
+The current package has moved past scaffold-only:
 
 - `src/adapter.ts`: `ErpAdapter`, tool definition, call context/result.
+- `src/client.ts`: `ErpToolsClient`, the `@casys/mcp-server` projection layer
+  that mirrors `mcp-einvoice`'s `EInvoiceToolsClient`.
 - `src/connection.ts`: explicit tenant-scoped `ErpConnection`.
 - `src/registry.ts`: `buildAdapter(connection)`.
-- `src/adapters/erpnext.ts` and `src/adapters/dolibarr.ts`: ping adapters.
-- `apps/local-agent`: ERP-specific local runner that consumes the generic tunnel
-  from `@casys/mcp-bridge/adapters/network`.
+- `src/adapters/erpnext.ts`: ping plus native Frappe Customer, Item, and Sales
+  Invoice list/get.
+- `src/adapters/dolibarr.ts`: ping plus native Dolibarr Thirdparty, Product, and
+  Invoice list/get.
+- `src/viewers.ts` + `src/ui/dist`: first MCP Apps viewer registration and built
+  viewer HTML, ported from `mcp-erpnext`.
+- `server.ts`: local/dev stdio or HTTP MCP server using `@casys/mcp-server`.
 
 ## API Families Observed
 
@@ -83,8 +90,25 @@ capability discovery and metadata ingestion before normalized tools.
 Every adapter should expose reliable provider-native tools first:
 
 - `erpnext.customer_list`
+- `erpnext.customer_get`
+- `erpnext.item_list`
+- `erpnext.item_get`
+- `erpnext.sales_invoice_list`
 - `erpnext.sales_invoice_get`
+- `erpnext.sales_order_list`
+- `erpnext.sales_order_get`
+- `erpnext.quotation_list`
+- `erpnext.quotation_get`
 - `dolibarr.thirdparty_list`
+- `dolibarr.thirdparty_get`
+- `dolibarr.product_list`
+- `dolibarr.product_get`
+- `dolibarr.invoice_list`
+- `dolibarr.invoice_get`
+- `dolibarr.order_list`
+- `dolibarr.order_get`
+- `dolibarr.proposal_list`
+- `dolibarr.proposal_get`
 - `dolibarr.invoice_validate`
 - `odoo.partner_search`
 - `businesscentral.sales_invoice_post`
@@ -141,6 +165,7 @@ large refactor.
 mod.ts
 src/
   adapter.ts
+  client.ts
   connection.ts
   registry.ts
 
@@ -177,10 +202,14 @@ src/
         customers.ts
         items.ts
         sales-invoices.ts
+        sales-orders.ts
+        quotations.ts
       mappers/
         business-party.ts
         catalog-item.ts
         sales-invoice.ts
+        sales-order.ts
+        quotation.ts
       fixtures/
       adapter_test.ts
 
@@ -192,26 +221,21 @@ src/
         thirdparties.ts
         products.ts
         invoices.ts
+        orders.ts
+        proposals.ts
       mappers/
         business-party.ts
         catalog-item.ts
         sales-invoice.ts
+        sales-order.ts
+        quotation.ts
       fixtures/
       adapter_test.ts
-
-apps/
-  local-agent/
-    deno.json
-    src/
-      config.ts
-      adapter-runner.ts
-      local-agent.ts
-      cli.ts
 
 docs/
   architecture/
     erp-abstraction-and-repo-tree.md
-    runtime-boundaries-and-local-tunnel.md
+    runtime-boundaries-and-mcp-server.md
     erpnext-dolibarr-api-comparison.md
   research/
     odoo.md
@@ -223,15 +247,19 @@ docs/
 ## Near-Term Plan
 
 1. Keep v0.1 narrow: ERPNext and Dolibarr only.
-2. Add `capabilities.ts` and typed error primitives before adding more ERPs.
-3. Move ERPNext/Dolibarr from single adapter files to adapter directories when
+2. Keep `ErpToolsClient` as the only package-level MCP projection into
+   `@casys/mcp-server`; adapters must stay wire-agnostic.
+3. Add `capabilities.ts` and common typed error primitives before adding more
+   ERPs.
+4. Move ERPNext/Dolibarr from single adapter files to adapter directories when
    the first real tools land.
-4. Create `erpnext-dolibarr-api-comparison.md` with endpoint evidence and
+5. Keep `erpnext-dolibarr-api-comparison.md` current with endpoint evidence and
    field/lifecycle mapping before adding normalized tools.
-5. Reuse `mcp-erpnext` Frappe client/tool patterns, but remove env-based
+6. Reuse `mcp-erpnext` Frappe client/tool patterns, but remove env-based
    singleton assumptions and pass explicit `ErpConnection`.
-6. Keep generic runtime transport concerns in `mcp-bridge`; keep the
-   ERP-specific local-agent product surface in `mcp-erp/apps/local-agent`.
+7. Keep MCP transport concerns in `@casys/mcp-server`; `mcp-erp` should expose
+   stdio/http locally through `server.ts` and be embedded remotely by
+   `erp-platform` later.
 
 ## Source Notes
 

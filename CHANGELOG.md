@@ -1,7 +1,6 @@
 # Changelog
 
-All notable changes to `@casys/mcp-erp` (and its `apps/local-agent` sub-package
-`@casys/mcp-erp-local-agent`) will be documented in this file.
+All notable changes to `@casys/mcp-erp` will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project adheres to
@@ -9,67 +8,73 @@ the project adheres to
 
 ## [Unreleased]
 
-### TODO
+### Alpha status
 
-- Published package shape still requires `@casys/mcp-bridge@0.3.0` to land on
-  JSR (or to be vendored into `mcp-erp`). The current sibling import in
-  `deno.json` is intentional for this PR scope.
+- Establishes an alpha technical package: usable by developers for local
+  stdio/http MCP runs against explicitly configured ERP connections, with
+  read-only ERPNext and Dolibarr coverage plus bundled MCP Apps viewers.
+- This is not yet a beta/product release: hosted remote MCP operation, richer
+  shared viewers, and broader adapter depth remain roadmap work.
+
+### Added
+
+- ERPNext read-only Customer, Item, Sales Invoice, Sales Order, and Quotation
+  tools: `erpnext.customer_list`, `erpnext.customer_get`, `erpnext.item_list`,
+  `erpnext.item_get`, `erpnext.sales_invoice_list`, `erpnext.sales_invoice_get`,
+  `erpnext.sales_order_list`, `erpnext.sales_order_get`,
+  `erpnext.quotation_list`, and `erpnext.quotation_get`.
+- Minimal ERPNext/Frappe REST client inside the ERPNext adapter with explicit
+  connection credentials, token auth, list filters, JSON parsing, and typed
+  `FrappeApiError` propagation.
+- Dolibarr read-only Thirdparty, Product, Invoice, Order, and Proposal tools:
+  `dolibarr.thirdparty_list`, `dolibarr.thirdparty_get`,
+  `dolibarr.product_list`, `dolibarr.product_get`, `dolibarr.invoice_list`, and
+  `dolibarr.invoice_get`, `dolibarr.order_list`, `dolibarr.order_get`,
+  `dolibarr.proposal_list`, and `dolibarr.proposal_get`.
+- Minimal Dolibarr REST client inside the Dolibarr adapter with explicit
+  connection credentials, `DOLAPIKEY` auth, reusable module resource reads, JSON
+  parsing, and typed `DolibarrApiError` propagation.
+- `ErpToolsClient`, mirroring the `mcp-einvoice` `EInvoiceToolsClient` pattern,
+  to project agnostic `ErpAdapter` tools into `@casys/mcp-server` `MCPTool`
+  registrations and structured tool results.
+- `ErpToolCallContext.signal` plumbing in the adapter/client contract. ERPNext
+  and Dolibarr pass it into `fetch` when callers provide one; automatic
+  per-request cancellation awaits an `@casys/mcp-server` handler context that
+  exposes a signal.
+- `erpToolErrorMapper` for `@casys/mcp-server` so adapter/API validation errors
+  become MCP tool errors instead of raw JSON-RPC failures.
+- `server.ts` local/dev MCP entrypoint for stdio and HTTP runs with
+  `@casys/mcp-server`.
+- MCP Apps viewer support via `registerErpViewers(app)`, bundled
+  `doclist-viewer`, `invoice-viewer`, and `diagnostics-viewer` HTML resources
+  under `ui://mcp-erp/*`, and `_meta.ui.resourceUri` on compatible read-only
+  tools.
+- Diagnostics payloads and viewer binding for `erpnext.ping` and
+  `dolibarr.ping`, including ERP type, tenant context, API URL, and exposed tool
+  names.
+
+### Removed
+
+- Removed the `apps/local-agent` tunnel experiment and the `mcp-bridge`
+  dependency from the package surface. The supported local development path is
+  stdio or HTTP via `@casys/mcp-server`; production should embed the MCP server
+  remotely.
 
 ## [0.1.0] - 2026-05-19
 
-First release that ships both the ERP-agnostic core AND a usable customer-side
-tunnel agent. Powers the `erp-platform` tunnel MVP where online MCP clients
-(Claude.ai, etc.) call ERPs running on private LANs.
+First release of the ERP-agnostic adapter core.
 
 ### Added — `@casys/mcp-erp` (core)
 
 - **`src/tool-catalog.ts` + exported `getErpToolDefinitions(erpType)`.** Returns
   the static tool definitions (name, description, inputSchema) for a given ERP
-  type WITHOUT instantiating an adapter — so a hosted SaaS can build a tunneled
-  MCP server without holding the customer's ERP credentials in memory. Currently
-  covers `erpnext` and `dolibarr`.
-- **`./local-agent` and `./local-agent/cli` exports** (sub-package
-  `@casys/mcp-erp-local-agent`).
-
-### Added — `@casys/mcp-erp-local-agent` (`apps/local-agent`)
-
-This sub-package is the **customer-side tunnel agent** — the only piece of the
-Casys stack that runs on customer hardware. It embeds `@casys/mcp-erp` (this
-core) plus `@casys/mcp-bridge`'s network client, dials a SaaS relay, and
-forwards `tool.call` to the local ERP.
-
-- Runner, config parser, CLI entrypoint (`./cli`), and adapter wiring.
-- Bounded exponential reconnect loop (initial 1s, cap 60s, ±20% jitter); fresh
-  hello on each (re)connect. Terminal close codes (4001/4002/4004/4009) stop the
-  loop with a structured error via `onTerminalError`.
-- Structured `LocalErpAgentCliError { code, context, recovery }` for config-load
-  failures (`CONFIG_FILE_NOT_FOUND`, `CONFIG_FILE_UNREADABLE`,
-  `CONFIG_JSON_INVALID`, `CONFIG_UNEXPECTED_ERROR`).
-- Top-level CLI boundary that redacts WS bearer tokens from stderr before
-  printing (defense in depth — bridge also redacts upstream).
-- Stable CLI exit codes: `2` = config error, `4` = terminal network error, `1` =
-  unknown, `0` = clean shutdown.
-
-### Security — `@casys/mcp-erp-local-agent`
-
-- **`endpointAuth.via: "query"` is now rejected at config parse time.** Only
-  `via: "header"` (or the `headers` variant) is accepted. The agent runs on
-  customer hardware where systemd / proxy logs may capture the WebSocket URL —
-  embedding the bearer there leaks it past every log-rotation.
+  type WITHOUT instantiating an adapter. Currently covers `erpnext` and
+  `dolibarr`.
 
 ### Added — testing
 
 - Catalog ↔ adapter parity test in `src/tool-catalog_test.ts` — builds dummy
   ERPNext and Dolibarr adapters and asserts deep equality on
   `{ name, description, inputSchema }` between `getErpToolDefinitions(erpType)`
-  and `adapter.tools()`. Prevents future drift between the static tunneled
-  catalog and the runtime adapter dispatch.
-
-### References
-
-- Implementation plan and review trail:
-  [`erp-platform/docs/superpowers/plans/2026-05-18-tunnel-review-fixes.md`](https://github.com/Casys-AI/erp-platform/blob/main/docs/superpowers/plans/2026-05-18-tunnel-review-fixes.md)
-- Architecture decision: ADR 0003
-  (`erp-platform/docs/adr/0003-network-tunnel-via-mcp-bridge.md`) and ADR 0004
-  (`erp-platform/docs/adr/0004-tunnel-challenge-response-v2.md`).
-- Required peers: `@casys/mcp-bridge ^0.3.0`, `@casys/mcp-server ^0.17.2`.
+  and `adapter.tools()`. Prevents future drift between the static catalog and
+  runtime adapter dispatch.

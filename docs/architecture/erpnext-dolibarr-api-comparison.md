@@ -1,6 +1,7 @@
 # ERPNext and Dolibarr API comparison
 
-Status: working evidence note, checked on 2026-05-15.
+Status: working evidence note, checked on 2026-05-15 and updated during the
+first read-only adapter implementation pass.
 
 ## Purpose
 
@@ -118,32 +119,32 @@ The normalized payload must keep the native state and available native actions.
 
 ## Proposed v0.1 Tool Surface
 
-Read-first provider tools:
+Read-first provider tools. Checked items are implemented in the current package:
 
 ```text
-erpnext.customer_list
-erpnext.customer_get
+erpnext.customer_list        # implemented
+erpnext.customer_get         # implemented
 erpnext.supplier_list
 erpnext.supplier_get
-erpnext.item_list
-erpnext.item_get
-erpnext.sales_invoice_list
-erpnext.sales_invoice_get
-erpnext.sales_order_list
-erpnext.sales_order_get
-erpnext.quotation_list
-erpnext.quotation_get
+erpnext.item_list            # implemented
+erpnext.item_get             # implemented
+erpnext.sales_invoice_list   # implemented
+erpnext.sales_invoice_get    # implemented
+erpnext.sales_order_list     # implemented
+erpnext.sales_order_get      # implemented
+erpnext.quotation_list       # implemented
+erpnext.quotation_get        # implemented
 
-dolibarr.thirdparty_list
-dolibarr.thirdparty_get
-dolibarr.product_list
-dolibarr.product_get
-dolibarr.invoice_list
-dolibarr.invoice_get
-dolibarr.order_list
-dolibarr.order_get
-dolibarr.proposal_list
-dolibarr.proposal_get
+dolibarr.thirdparty_list     # implemented
+dolibarr.thirdparty_get      # implemented
+dolibarr.product_list        # implemented
+dolibarr.product_get         # implemented
+dolibarr.invoice_list        # implemented
+dolibarr.invoice_get         # implemented
+dolibarr.order_list          # implemented
+dolibarr.order_get           # implemented
+dolibarr.proposal_list       # implemented
+dolibarr.proposal_get        # implemented
 ```
 
 Mutation tools should come later, with `dry_run: true` by default and explicit
@@ -194,6 +195,11 @@ Each canonical object should include:
 6. E-invoicing remains outside this adapter layer; invoice data can be read from
    ERP systems here, but regulated invoice routing/status belongs in
    `mcp-einvoice`.
+7. Viewers are shared at the MCP Apps layer. The current `doclist-viewer` can
+   render provider-native list payloads when tools include `{ doctype, data }`.
+   The `diagnostics-viewer` renders both provider `ping` payloads. The ERPNext
+   invoice viewer can render `Sales Invoice` details now; Dolibarr invoice
+   details need a small payload mapping before using the same viewer.
 
 ## Open Verification
 
