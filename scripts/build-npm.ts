@@ -51,15 +51,18 @@ await build({
       "erp",
       "erpnext",
       "dolibarr",
-      "tunnel",
+      "mcp-server",
+      "stdio",
+      "http",
     ],
   },
   compilerOptions: {
     lib: ["ES2022", "DOM"],
     target: "ES2022",
   },
-  // The package root is runtime-agnostic. Deno-first local-agent exports stay
-  // JSR-only, so npm generation intentionally skips full DNT type-checking.
+  // The package root is runtime-agnostic. The Deno `./server` CLI export stays
+  // JSR-only for now because it owns Deno runtime concerns such as CLI args,
+  // file reads, and signal handling.
   typeCheck: false,
   test: false,
   importMap: "./deno.json",
@@ -79,9 +82,39 @@ pkg.exports = {
 };
 await Deno.writeTextFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
+await copyViewerDistToNpm();
 await smokeTestRootExport();
 
 console.log("\n[build-npm] Done. Output in ./dist-node/");
+
+async function copyViewerDistToNpm(): Promise<void> {
+  const source = new URL("../src/ui/dist/", import.meta.url);
+  try {
+    await Deno.stat(source);
+  } catch {
+    return;
+  }
+  await copyDirectory(source, "dist-node/esm/ui-dist");
+  await copyDirectory(source, "dist-node/script/ui-dist");
+}
+
+async function copyDirectory(source: URL, target: string): Promise<void> {
+  await Deno.mkdir(target, { recursive: true });
+  for await (const entry of Deno.readDir(source)) {
+    const sourceChild = new URL(
+      `${entry.name}${entry.isDirectory ? "/" : ""}`,
+      source,
+    );
+    const targetChild = `${target}/${entry.name}`;
+    if (entry.isDirectory) {
+      await copyDirectory(sourceChild, targetChild);
+      continue;
+    }
+    if (entry.isFile) {
+      await Deno.copyFile(sourceChild, targetChild);
+    }
+  }
+}
 
 async function smokeTestRootExport(): Promise<void> {
   const tempConsumer = await Deno.makeTempDir({

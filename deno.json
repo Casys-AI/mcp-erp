@@ -4,25 +4,25 @@
   "description": "ERP-agnostic MCP adapters. Drop-in adapter layer for ERPNext, Dolibarr, and more — designed to be embedded in a multi-tenant MCP server.",
   "exports": {
     ".": "./mod.ts",
-    "./local-agent": "./apps/local-agent/src/mod.ts",
-    "./local-agent/cli": "./apps/local-agent/src/cli.ts"
+    "./server": "./server.ts"
   },
   "imports": {
-    "@casys/mcp-bridge": "jsr:@casys/mcp-bridge@^0.3.0",
-    "@casys/mcp-bridge/adapters/network": "jsr:@casys/mcp-bridge@^0.3.0/adapters/network",
-    "@casys/mcp-server": "jsr:@casys/mcp-server@^0.17.2",
+    "@casys/mcp-server": "jsr:@casys/mcp-server@^0.18.0",
     "@deno/dnt": "jsr:@deno/dnt@^0.41",
     "@std/assert": "jsr:@std/assert@^1"
   },
   "tasks": {
     "check": "deno fmt --check . && deno lint . && deno check",
+    "serve": "deno run --allow-read --allow-net server.ts --http",
+    "stdio": "deno run --allow-read --allow-net server.ts",
     "test": "deno test --allow-all"
   },
   "publish": {
     "include": [
       "mod.ts",
+      "server.ts",
       "src/**/*.ts",
-      "apps/local-agent/src/**/*.ts",
+      "src/ui/dist/**/*.html",
       "README.md",
       "LICENSE"
     ],
@@ -34,6 +34,11 @@
   "exclude": [
     "dist-node"
   ],
+  "fmt": {
+    "exclude": [
+      "src/ui/dist"
+    ]
+  },
   "lint": {
     "rules": {
       "exclude": [

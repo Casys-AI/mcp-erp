@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnostics Viewer - mcp-erp</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --text: #18202b;
+        --muted: #607086;
+        --line: #dfe5ee;
+        --accent: #19705f;
+        --warn: #a65c00;
+        --chip: #edf4f2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--warn);
+      }
+
+      .ok .dot {
+        background: var(--accent);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 16px;
+      }
+
+      .wide {
+        grid-column: 1 / -1;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 650;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        gap: 10px 12px;
+        margin: 0;
+      }
+
+      dt {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      dd {
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+      }
+
+      .tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: var(--chip);
+        color: #254a43;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 28px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          padding: 16px;
+        }
+
+        header {
+          display: block;
+        }
+
+        .status {
+          margin-top: 12px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        dl {
+          grid-template-columns: 96px minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="empty">Waiting for MCP diagnostics data...</div>
+    </main>
+    <script>
+      function extractData(message) {
+        if (!message || typeof message !== "object") return null;
+        if (message.mcpData && typeof message.mcpData === "object") {
+          return message.mcpData;
+        }
+        if (message.structuredContent && typeof message.structuredContent === "object") {
+          return message.structuredContent;
+        }
+        if (
+          message.params &&
+          typeof message.params.structuredContent === "object"
+        ) {
+          return message.params.structuredContent;
+        }
+        if (
+          message.params &&
+          message.params.result &&
+          typeof message.params.result.structuredContent === "object"
+        ) {
+          return message.params.result.structuredContent;
+        }
+        var content = message.params && message.params.content;
+        if (Array.isArray(content)) {
+          var text = content.find(function(item) {
+            return item && item.type === "text" && typeof item.text === "string";
+          });
+          if (text) {
+            try {
+              return JSON.parse(text.text);
+            } catch (_error) {
+              return null;
+            }
+          }
+        }
+        if (typeof message.ok === "boolean" || message.erpType || message.apiUrl) {
+          return message;
+        }
+        return null;
+      }
+
+      function text(value, fallback) {
+        if (value === undefined || value === null || value === "") {
+          return fallback;
+        }
+        return String(value);
+      }
+
+      function escapeHtml(value) {
+        return text(value, "").replace(/[&<>"']/g, function(char) {
+          return {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+          }[char];
+        });
+      }
+
+      function render(data) {
+        var toolNames = Array.isArray(data.toolNames) ? data.toolNames : [];
+        var ok = data.ok === true;
+        document.getElementById("app").innerHTML =
+          '<header>' +
+            '<div>' +
+              '<h1>ERP Diagnostics</h1>' +
+              '<div class="subtitle">MCP adapter status and exposed tool surface</div>' +
+            '</div>' +
+            '<div class="status ' + (ok ? "ok" : "") + '">' +
+              '<span class="dot"></span>' +
+              escapeHtml(ok ? "Ready" : "Check required") +
+            '</div>' +
+          '</header>' +
+          '<section class="grid">' +
+            '<div class="panel">' +
+              '<h2>Connection</h2>' +
+              '<dl>' +
+                '<dt>ERP</dt><dd>' + escapeHtml(text(data.erpType, "unknown")) + '</dd>' +
+                '<dt>API URL</dt><dd>' + escapeHtml(text(data.apiUrl, "not provided")) + '</dd>' +
+                '<dt>Sandbox</dt><dd>' + escapeHtml(text(data.sandbox, "unknown")) + '</dd>' +
+              '</dl>' +
+            '</div>' +
+            '<div class="panel">' +
+              '<h2>Request</h2>' +
+              '<dl>' +
+                '<dt>Tenant</dt><dd>' + escapeHtml(text(data.tenantId, "unknown")) + '</dd>' +
+                '<dt>Actor</dt><dd>' + escapeHtml(text(data.actorSubject, "none")) + '</dd>' +
+                '<dt>Tools</dt><dd>' + escapeHtml(text(data.toolCount, toolNames.length)) + '</dd>' +
+              '</dl>' +
+            '</div>' +
+            '<div class="panel wide">' +
+              '<h2>Tool Surface</h2>' +
+              '<div class="tools">' +
+                (toolNames.length
+                  ? toolNames.map(function(name) {
+                    return '<span class="chip">' + escapeHtml(name) + '</span>';
+                  }).join("")
+                  : '<span class="chip">No tools reported</span>') +
+              '</div>' +
+            '</div>' +
+          '</section>';
+      }
+
+      function accept(message) {
+        var data = extractData(message);
+        if (data) render(data);
+      }
+
+      accept(window.mcpData);
+
+      window.addEventListener("message", function(event) {
+        var message = event.data;
+        if (message && message.jsonrpc === "2.0" && message.id === "mcp-init") {
+          window.parent.postMessage({
+            jsonrpc: "2.0",
+            method: "ui/notifications/initialized"
+          }, "*");
+          return;
+        }
+        if (
+          message &&
+          message.jsonrpc === "2.0" &&
+          message.method === "ui/notifications/tool-input"
+        ) {
+          return;
+        }
+        accept(message);
+      });
+
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          jsonrpc: "2.0",
+          id: "mcp-init",
+          method: "ui/initialize",
+          params: {
+            clientInfo: { name: "mcp-erp diagnostics", version: "1.0.0" },
+            capabilities: {}
+          }
+        }, "*");
+      }
+    </script>
+  </body>
+</html>

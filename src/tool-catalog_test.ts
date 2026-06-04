@@ -11,13 +11,28 @@ function comparableToolDefinition(tool: ErpToolDefinition) {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+    annotations: tool.annotations,
+    _meta: tool._meta,
   };
 }
 
 Deno.test("getErpToolDefinitions — returns ERPNext definitions without credentials", () => {
   const tools = getErpToolDefinitions("erpnext");
 
-  assertEquals(tools.map((tool) => tool.name), ["erpnext.ping"]);
+  assertEquals(tools.map((tool) => tool.name), [
+    "erpnext.ping",
+    "erpnext.customer_list",
+    "erpnext.customer_get",
+    "erpnext.item_list",
+    "erpnext.item_get",
+    "erpnext.sales_invoice_list",
+    "erpnext.sales_invoice_get",
+    "erpnext.sales_order_list",
+    "erpnext.sales_order_get",
+    "erpnext.quotation_list",
+    "erpnext.quotation_get",
+  ]);
   assertEquals(tools[0].inputSchema, {
     type: "object",
     properties: {},
@@ -28,7 +43,19 @@ Deno.test("getErpToolDefinitions — returns ERPNext definitions without credent
 Deno.test("getErpToolDefinitions — returns Dolibarr definitions without credentials", () => {
   const tools = getErpToolDefinitions("dolibarr");
 
-  assertEquals(tools.map((tool) => tool.name), ["dolibarr.ping"]);
+  assertEquals(tools.map((tool) => tool.name), [
+    "dolibarr.ping",
+    "dolibarr.thirdparty_list",
+    "dolibarr.thirdparty_get",
+    "dolibarr.product_list",
+    "dolibarr.product_get",
+    "dolibarr.invoice_list",
+    "dolibarr.invoice_get",
+    "dolibarr.order_list",
+    "dolibarr.order_get",
+    "dolibarr.proposal_list",
+    "dolibarr.proposal_get",
+  ]);
   assertEquals(tools[0].inputSchema, {
     type: "object",
     properties: {},
@@ -50,6 +77,16 @@ Deno.test("getErpToolDefinitions — returns a fresh array", () => {
 
   assertEquals(getErpToolDefinitions("erpnext").map((tool) => tool.name), [
     "erpnext.ping",
+    "erpnext.customer_list",
+    "erpnext.customer_get",
+    "erpnext.item_list",
+    "erpnext.item_get",
+    "erpnext.sales_invoice_list",
+    "erpnext.sales_invoice_get",
+    "erpnext.sales_order_list",
+    "erpnext.sales_order_get",
+    "erpnext.quotation_list",
+    "erpnext.quotation_get",
   ]);
 });
 

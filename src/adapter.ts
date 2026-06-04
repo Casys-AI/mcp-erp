@@ -30,6 +30,26 @@ export interface ErpToolDefinition {
   description: string;
   /** JSON Schema (draft-07) for the call args. */
   inputSchema: Record<string, unknown>;
+  /** Optional JSON Schema for the structured result. */
+  outputSchema?: Record<string, unknown>;
+  /** Behavioural hints for MCP clients and hosts. */
+  annotations?: ErpToolAnnotations;
+  /** MCP Apps / UI metadata. Shape-compatible with `@casys/mcp-server`. */
+  _meta?: ErpToolMeta;
+}
+
+export interface ErpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+}
+
+export interface ErpToolMeta {
+  ui?: {
+    resourceUri: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 /** Per-call context handed to `callTool`. Adapter-agnostic. */
@@ -38,6 +58,8 @@ export interface ErpToolCallContext {
   tenantId: string;
   /** Authenticated user subject (JWT `sub`), or null for system calls. */
   actorSubject: string | null;
+  /** Cancellation signal from the MCP server/runtime layer, when available. */
+  signal?: AbortSignal;
 }
 
 /** Structured result of a tool call. */
