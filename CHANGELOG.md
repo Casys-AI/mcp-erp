@@ -8,6 +8,20 @@ the project adheres to
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`erpnext.sales_invoice_get` — `content.data` shape changed (Step 10).**
+  `content.data` now contains the normalized invoice-viewer contract (`name`,
+  `status`, `customer`/`party_name`, `posting_date`, `due_date`, `currency`,
+  `grand_total`, `net_total`, `total_taxes_and_charges`,
+  `items[]{item_name, qty, rate, amount}`) instead of the raw Frappe payload.
+  The raw Frappe payload is preserved under `content.salesInvoice` for
+  backward-compatibility. Consumers that read `content.data` directly must
+  migrate to the new contract or read `content.salesInvoice` instead. The
+  `status` field now falls back to Frappe's `docstatus` integer (0 → `Draft`, 1
+  → `Submitted`, 2 → `Cancelled`) when the document-level `status` string is
+  absent or empty.
+
 ### Alpha status
 
 - Establishes an alpha technical package: usable by developers for local

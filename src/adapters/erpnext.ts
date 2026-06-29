@@ -890,6 +890,80 @@ function extractFrappeErrorMessage(
   return fallback || "HTTP request failed";
 }
 
+/**
+ * Derive a human-readable status from Frappe's numeric `docstatus` field,
+ * used as fallback when the document-level `status` field is absent or empty.
+ *
+ *   0 → Draft  |  1 → Submitted  |  2 → Cancelled
+ */
+function mapDocstatus(docstatus: unknown): string {
+  if (docstatus === 0 || docstatus === "0") return "Draft";
+  if (docstatus === 1 || docstatus === "1") return "Submitted";
+  if (docstatus === 2 || docstatus === "2") return "Cancelled";
+  return "";
+}
+
+/**
+ * Map an ERPNext native Sales Invoice payload to the invoice-viewer `data`
+ * contract, which is shared with the Dolibarr adapter (`mapDolibarrInvoice`).
+ *
+ * Target fields: name, status, customer/party_name, posting_date, due_date,
+ * currency, grand_total, net_total, total_taxes_and_charges,
+ * items[]{item_name, qty, rate, amount}.
+ *
+ * The full native payload is preserved by `sales_invoice_get` beside `data`.
+ *
+ * @internal — not a stable public API.
+ */
+export function mapErpNextSalesInvoice(
+  native: Record<string, unknown>,
+): Record<string, unknown> {
+  const rawItems = Array.isArray(native.items) ? native.items : [];
+  const items = rawItems
+    .filter((raw) => isRecord(raw))
+    .map((raw) => {
+      const item = raw as Record<string, unknown>;
+      const mapped: Record<string, unknown> = {
+        item_name:
+          typeof item.item_name === "string" && item.item_name.length > 0
+            ? item.item_name
+            : (typeof item.item_code === "string" ? item.item_code : ""),
+      };
+      if (item.qty !== undefined) mapped.qty = item.qty;
+      if (typeof item.rate === "number") mapped.rate = item.rate;
+      if (typeof item.amount === "number") mapped.amount = item.amount;
+      return mapped;
+    });
+
+  // Prefer the document-level `status` string (e.g. "Unpaid", "Paid");
+  // fall back to docstatus integer when status is absent or empty.
+  const explicitStatus = typeof native.status === "string" ? native.status : "";
+  const status = explicitStatus || mapDocstatus(native.docstatus);
+
+  const data: Record<string, unknown> = {
+    name: typeof native.name === "string" ? native.name : "",
+    status,
+    items,
+  };
+
+  // Party — prefer customer (customer-facing invoice), fallback to party_name
+  if (native.customer !== undefined) data.customer = native.customer;
+  else if (native.party_name !== undefined) data.party_name = native.party_name;
+
+  if (native.posting_date !== undefined) {
+    data.posting_date = native.posting_date;
+  }
+  if (native.due_date !== undefined) data.due_date = native.due_date;
+  if (native.currency !== undefined) data.currency = native.currency;
+  if (native.grand_total !== undefined) data.grand_total = native.grand_total;
+  if (native.net_total !== undefined) data.net_total = native.net_total;
+  if (native.total_taxes_and_charges !== undefined) {
+    data.total_taxes_and_charges = native.total_taxes_and_charges;
+  }
+
+  return data;
+}
+
 export function getErpnextToolDefinitions(): ErpToolDefinition[] {
   return TOOLS.map((tool) => ({
     ...tool,
@@ -1142,7 +1216,10 @@ export function createErpnextAdapter(
         );
         return {
           content: {
-            data: salesInvoice,
+            // Normalized invoice-viewer contract (provider-agnostic fields).
+            // Breaking change vs pre-Step10: `data` is now the mapped invoice,
+            // not the raw native. The raw native is preserved in `salesInvoice`.
+            data: mapErpNextSalesInvoice(salesInvoice),
             salesInvoice,
           },
           summary: `ERPNext sales_invoice_get returned ${

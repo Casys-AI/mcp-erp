@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert } from "@std/assert/assert";
 import type { ErpAdapter } from "./adapter.ts";
 import { createErpMcpApp } from "./mcp-app.ts";
 
@@ -164,6 +165,53 @@ Deno.test("createErpMcpApp — registers ERP MCP Apps viewer resources", async (
     assertStringIncludes(
       diagnosticsBody.result.contents[0].text,
       "<title>Diagnostics Viewer - mcp-erp</title>",
+    );
+
+    // invoice-viewer: vanilla HTML, correct title, no React
+    const invoiceViewerResponse = await fetch(`http://localhost:${port}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "resources/read",
+        params: { uri: "ui://mcp-erp/invoice-viewer" },
+      }),
+    });
+    const invoiceViewerBody = await invoiceViewerResponse.json();
+    const invoiceHtml: string = invoiceViewerBody.result.contents[0].text;
+    assertEquals(
+      invoiceViewerBody.result.contents[0].uri,
+      "ui://mcp-erp/invoice-viewer",
+    );
+    assertStringIncludes(
+      invoiceHtml,
+      "<title>Invoice Viewer - mcp-erp</title>",
+    );
+    assertStringIncludes(invoiceHtml, "No invoice data");
+    assert(
+      !invoiceHtml.includes("react.production"),
+      "invoice-viewer must not bundle React",
+    );
+    assert(
+      !invoiceHtml.includes("ERPNext"),
+      "invoice-viewer HTML must not leak provider names",
+    );
+
+    // doclist-viewer: vanilla HTML, correct title, vanilla token, no React
+    const doclistHtml: string = readBody.result.contents[0].text;
+    assertStringIncludes(
+      doclistHtml,
+      "<title>Doclist Viewer - mcp-erp</title>",
+    );
+    assertStringIncludes(doclistHtml, "No documents");
+    assert(
+      !doclistHtml.includes("react.production"),
+      "doclist-viewer must not bundle React",
+    );
+    assert(
+      !doclistHtml.includes("ERPNext"),
+      "doclist-viewer HTML must not leak provider names",
     );
   } finally {
     await http.shutdown();

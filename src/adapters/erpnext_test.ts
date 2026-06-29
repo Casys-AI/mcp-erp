@@ -1,5 +1,9 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { createErpnextAdapter, FrappeApiError } from "./erpnext.ts";
+import {
+  createErpnextAdapter,
+  FrappeApiError,
+  mapErpNextSalesInvoice,
+} from "./erpnext.ts";
 import { UnknownToolError } from "../adapter.ts";
 
 interface CapturedFetch {
@@ -410,6 +414,7 @@ Deno.test("createErpnextAdapter — sales_invoice_get calls Frappe Sales Invoice
       captured[0].url.pathname,
       "/api/resource/Sales%20Invoice/SINV-001",
     );
+    // Raw native preserved for backward-compat
     assertEquals(
       (result.content as { salesInvoice: unknown }).salesInvoice,
       {
@@ -418,6 +423,13 @@ Deno.test("createErpnextAdapter — sales_invoice_get calls Frappe Sales Invoice
         items: [{ item_code: "ITEM-001", qty: 2 }],
       },
     );
+    // data is now the mapped invoice (normalized contract)
+    const data = (result.content as Record<string, unknown>)
+      .data as Record<string, unknown>;
+    assertEquals(data.name, "SINV-001");
+    assertEquals(data.customer, "CUST-001");
+    assertEquals(data.status, "");
+    assertEquals(Array.isArray(data.items), true);
   } finally {
     restore();
   }
@@ -1136,4 +1148,163 @@ Deno.test("createErpnextAdapter — quotation_get result includes data field", a
   } finally {
     restore();
   }
+});
+
+// ── Step 10: mapErpNextSalesInvoice normalizer ────────────────────────────────
+
+Deno.test("mapErpNextSalesInvoice — maps a full native ERPNext sales invoice to the invoice-viewer contract", () => {
+  const native = {
+    name: "SINV-001",
+    status: "Unpaid",
+    customer: "Acme Corp",
+    posting_date: "2026-01-15",
+    due_date: "2026-02-15",
+    currency: "EUR",
+    grand_total: 1200,
+    net_total: 1000,
+    total_taxes_and_charges: 200,
+    items: [
+      {
+        item_name: "Consulting",
+        item_code: "SVC-001",
+        qty: 2,
+        rate: 500,
+        amount: 1000,
+      },
+    ],
+  };
+
+  const result = mapErpNextSalesInvoice(native);
+
+  assertEquals(result.name, "SINV-001");
+  assertEquals(result.status, "Unpaid");
+  assertEquals(result.customer, "Acme Corp");
+  assertEquals(result.posting_date, "2026-01-15");
+  assertEquals(result.due_date, "2026-02-15");
+  assertEquals(result.currency, "EUR");
+  assertEquals(result.grand_total, 1200);
+  assertEquals(result.net_total, 1000);
+  assertEquals(result.total_taxes_and_charges, 200);
+  assertEquals(result.items, [
+    { item_name: "Consulting", qty: 2, rate: 500, amount: 1000 },
+  ]);
+});
+
+Deno.test("mapErpNextSalesInvoice — falls back to item_code when item_name is absent", () => {
+  const native = {
+    name: "SINV-002",
+    status: "Draft",
+    items: [
+      { item_code: "SVC-002", qty: 1, rate: 300, amount: 300 },
+    ],
+  };
+
+  const result = mapErpNextSalesInvoice(native);
+
+  assertEquals(
+    (result.items as Record<string, unknown>[])[0].item_name,
+    "SVC-002",
+  );
+});
+
+Deno.test("mapErpNextSalesInvoice — handles missing optional fields gracefully", () => {
+  const native = { name: "SINV-003", status: "Paid" };
+
+  const result = mapErpNextSalesInvoice(native);
+
+  assertEquals(result.name, "SINV-003");
+  assertEquals(result.status, "Paid");
+  assertEquals(result.items, []);
+  assertEquals(result.customer, undefined);
+  assertEquals(result.grand_total, undefined);
+});
+
+Deno.test("mapErpNextSalesInvoice — contract is consistent with Dolibarr invoice-viewer fields", () => {
+  // Both ERPNext and Dolibarr normalizers target the SAME set of keys.
+  // This test documents and locks down the cross-provider contract.
+  const native = {
+    name: "SINV-004",
+    status: "Unpaid",
+    customer: "Globex",
+    posting_date: "2026-03-01",
+    due_date: "2026-03-31",
+    currency: "USD",
+    grand_total: 500,
+    net_total: 400,
+    total_taxes_and_charges: 100,
+    items: [{ item_name: "Widget", qty: 5, rate: 80, amount: 400 }],
+  };
+
+  const result = mapErpNextSalesInvoice(native);
+
+  // Contract keys expected by invoice-viewer (same as Dolibarr's mapDolibarrInvoice output)
+  const expectedKeys = [
+    "name",
+    "status",
+    "items",
+    "customer",
+    "posting_date",
+    "due_date",
+    "currency",
+    "grand_total",
+    "net_total",
+    "total_taxes_and_charges",
+  ];
+  for (const key of expectedKeys) {
+    assertEquals(
+      key in result,
+      true,
+      `Expected contract key "${key}" to be present in mapped invoice`,
+    );
+  }
+});
+
+Deno.test("createErpnextAdapter — sales_invoice_get tool has ERP_INVOICE_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) =>
+    t.name === "erpnext.sales_invoice_get"
+  );
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/invoice-viewer" },
+  });
+});
+
+// ── Step 10 (Codex corrections): docstatus fallback + isRecord guard ──────────
+
+Deno.test("mapErpNextSalesInvoice — derives status from docstatus:0 when status absent", () => {
+  const result = mapErpNextSalesInvoice({ name: "SINV-A", docstatus: 0 });
+  assertEquals(result.status, "Draft");
+});
+
+Deno.test("mapErpNextSalesInvoice — derives status from docstatus:1 when status absent", () => {
+  const result = mapErpNextSalesInvoice({ name: "SINV-B", docstatus: 1 });
+  assertEquals(result.status, "Submitted");
+});
+
+Deno.test("mapErpNextSalesInvoice — derives status from docstatus:2 when status absent", () => {
+  const result = mapErpNextSalesInvoice({ name: "SINV-C", docstatus: 2 });
+  assertEquals(result.status, "Cancelled");
+});
+
+Deno.test("mapErpNextSalesInvoice — explicit status takes precedence over docstatus", () => {
+  const result = mapErpNextSalesInvoice({
+    name: "SINV-D",
+    status: "Unpaid",
+    docstatus: 1,
+  });
+  assertEquals(result.status, "Unpaid");
+});
+
+Deno.test("mapErpNextSalesInvoice — isRecord guard skips null/primitive items without crash", () => {
+  const result = mapErpNextSalesInvoice({
+    name: "SINV-E",
+    status: "Draft",
+    items: [null, "x", 42, { item_code: "A", qty: 1, rate: 10, amount: 10 }],
+  });
+  // Only the valid object survives the guard
+  assertEquals((result.items as unknown[]).length, 1);
+  assertEquals(
+    (result.items as Record<string, unknown>[])[0].item_name,
+    "A",
+  );
 });
