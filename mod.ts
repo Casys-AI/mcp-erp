@@ -34,6 +34,7 @@ export { buildAdapter, REGISTERED_ERP_TYPES } from "./src/registry.ts";
 export { buildMultiTenantHandlersMap, ErpToolsClient } from "./src/client.ts";
 export { erpToolErrorMapper } from "./src/error-mapper.ts";
 export { createErpMcpApp } from "./src/mcp-app.ts";
+export type { CreateErpMcpAppOptions } from "./src/mcp-app.ts";
 export { getErpToolDefinitions } from "./src/tool-catalog.ts";
 
 // ─── Multi-tenant remote boundary ─────────────────────────────────

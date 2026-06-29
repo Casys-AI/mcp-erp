@@ -73,6 +73,51 @@ Deno.test("createErpMcpApp — registers adapter tools on a McpApp", async () =>
   }
 });
 
+// ── Track A — stateless transport propagation ───────────────────────────────
+// Spec 2026-07-28: protocolVersion is carried via the namespaced key in params._meta.
+const PROTO_KEY = "io.modelcontextprotocol/protocolVersion";
+
+Deno.test(
+  "createErpMcpApp — transport:stateless propagates to McpApp (no Mcp-Session-Id, MCP-Protocol-Version set)",
+  async () => {
+    // RED-BAR: fails until `transport` is wired in createErpMcpApp.
+    const app = createErpMcpApp({
+      adapter: createAdapter(),
+      tenantId: "tenant_stateless",
+      transport: "stateless",
+      logger: () => {},
+    });
+
+    const listener = Deno.listen({ port: 0 });
+    const port = (listener.addr as Deno.NetAddr).port;
+    listener.close();
+
+    const http = await app.startHttp({ port, onListen: () => {} });
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: { [PROTO_KEY]: "2026-07-28" } },
+        }),
+      });
+
+      // Stateless: no session id header
+      assertEquals(res.headers.get("mcp-session-id"), null);
+      // Stateless: protocol version echoed in response header
+      assertEquals(res.headers.get("mcp-protocol-version"), "2026-07-28");
+      const data = await res.json();
+      // ERP tools are still registered
+      assertEquals(Array.isArray(data.result?.tools), true);
+    } finally {
+      await http.shutdown();
+    }
+  },
+);
+
 Deno.test("createErpMcpApp — registers ERP MCP Apps viewer resources", async () => {
   const app = createErpMcpApp({
     adapter: createAdapter(),

@@ -220,6 +220,57 @@ Deno.test("createErpRemoteApp — valid token + known tenant returns tool respon
   }
 });
 
+// ── Track A — stateless transport propagation ───────────────────────────────
+// Spec 2026-07-28: protocolVersion is carried via the namespaced key in params._meta.
+const PROTO_KEY = "io.modelcontextprotocol/protocolVersion";
+
+Deno.test(
+  "createErpRemoteApp — transport:stateless propagates to McpApp (no Mcp-Session-Id, MCP-Protocol-Version set)",
+  async () => {
+    // RED-BAR: fails until `transport` is wired in createErpRemoteApp.
+    // In stateless mode the remote app must still enforce auth (401 without token).
+    const app = createErpRemoteApp({
+      connectionProvider: makeProvider(),
+      auth: { provider: new FakeAuthProvider() },
+      tenantResolver: new FixedTenantResolver({ [TEST_SUBJECT]: "tenant-1" }),
+      transport: "stateless",
+      name: "test-remote-stateless",
+      version: "0.0.1",
+      registerViewers: false,
+      erpTypes: ["erpnext"] as const,
+    });
+
+    const port = allocatePort();
+    const http = await app.startHttp({ port, onListen: () => {} });
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${VALID_TOKEN}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: { [PROTO_KEY]: "2026-07-28" } },
+        }),
+      });
+
+      // Stateless: no session id header
+      assertEquals(res.headers.get("mcp-session-id"), null);
+      // Stateless: protocol version echoed in response header
+      assertEquals(res.headers.get("mcp-protocol-version"), "2026-07-28");
+      const body = await res.json() as {
+        result: { tools: Array<{ name: string }> };
+      };
+      assertEquals(Array.isArray(body.result?.tools), true);
+    } finally {
+      await http.shutdown();
+    }
+  },
+);
+
 Deno.test("createErpRemoteApp — erpTypes restricts registered tool surface", async () => {
   const provider = makeProvider();
   const auth = {

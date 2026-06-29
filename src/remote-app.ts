@@ -76,6 +76,20 @@ export interface CreateErpRemoteAppOptions {
    * time (static schemas); per-tenant dynamic filtering is out of scope.
    */
   readonly erpTypes?: readonly ErpType[];
+
+  /**
+   * HTTP transport mode (MCP spec 2026-07-28 Track A).
+   *
+   * - `"stateful"` (DEFAULT): session-based transport, retro-compatible with
+   *   all MCP clients.  Emits `Mcp-Session-Id` on first response.
+   * - `"stateless"`: per-request transport (no handshake, no `Mcp-Session-Id`).
+   *   **Recommended for hosted multi-instance deployments** where sticky sessions
+   *   are not guaranteed (e.g. serverless, multi-region load balancers).  Each
+   *   request carries its own `protocolVersion` in `params._meta`.
+   *
+   * Default: `"stateful"` — safe default, rétro-compatible.
+   */
+  readonly transport?: "stateful" | "stateless";
 }
 
 /**
@@ -108,6 +122,7 @@ export function createErpRemoteApp(
     validateSchema: true,
     toolErrorMapper: erpToolErrorMapper,
     auth: options.auth,
+    transport: options.transport ?? "stateful",
   });
 
   // Multi-tenant middleware: resolves tenantId into authInfo BEFORE handlers run.

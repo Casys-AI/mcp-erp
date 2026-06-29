@@ -21,6 +21,18 @@ export interface CreateErpMcpAppOptions {
   readonly version?: string;
   readonly logger?: (message: string) => void;
   readonly registerViewers?: boolean;
+  /**
+   * HTTP transport mode (MCP spec 2026-07-28 Track A).
+   *
+   * - `"stateful"` (DEFAULT): session-based transport, retro-compatible with
+   *   all MCP clients.  Emits `Mcp-Session-Id` on first response.
+   * - `"stateless"`: per-request transport (no handshake, no `Mcp-Session-Id`).
+   *   Recommended for single-binary dev servers and environments that can
+   *   guarantee a single process (no sticky sessions needed).
+   *
+   * Default: `"stateful"` — safe default, rétro-compatible.
+   */
+  readonly transport?: "stateful" | "stateless";
 }
 
 export function createErpMcpApp(options: CreateErpMcpAppOptions): McpApp {
@@ -32,6 +44,7 @@ export function createErpMcpApp(options: CreateErpMcpAppOptions): McpApp {
     validateSchema: true,
     toolErrorMapper: erpToolErrorMapper,
     logger: options.logger,
+    transport: options.transport ?? "stateful",
   });
 
   new ErpToolsClient({
