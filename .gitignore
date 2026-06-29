@@ -8,3 +8,5 @@ deno.lock
 !.env.example
 *.log
 .coverage/
+.claude/
+.serena/

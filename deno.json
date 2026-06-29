@@ -32,7 +32,9 @@
     ]
   },
   "exclude": [
-    "dist-node"
+    "dist-node",
+    ".claude",
+    ".serena"
   ],
   "fmt": {
     "exclude": [
