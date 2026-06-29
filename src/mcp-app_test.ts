@@ -110,6 +110,7 @@ Deno.test("createErpMcpApp — registers ERP MCP Apps viewer resources", async (
         "ui://mcp-erp/doclist-viewer",
         "ui://mcp-erp/invoice-viewer",
         "ui://mcp-erp/diagnostics-viewer",
+        "ui://mcp-erp/detail-viewer",
       ],
     );
 

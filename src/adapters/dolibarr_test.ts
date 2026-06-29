@@ -251,13 +251,14 @@ Deno.test("createDolibarrAdapter — invoice_list calls Dolibarr invoices list",
 
 Deno.test("createDolibarrAdapter — invoice_get calls Dolibarr invoice get", async () => {
   const captured: CapturedFetch[] = [];
+  const native = {
+    id: 99,
+    ref: "FA2301-001",
+    lines: [{ desc: "Consulting", qty: "2" }],
+  };
   const restore = mockFetch({
     status: 200,
-    body: {
-      id: 99,
-      ref: "FA2301-001",
-      lines: [{ desc: "Consulting", qty: "2" }],
-    },
+    body: native,
   }, captured);
 
   try {
@@ -271,11 +272,10 @@ Deno.test("createDolibarrAdapter — invoice_get calls Dolibarr invoice get", as
     assertEquals(captured.length, 1);
     assertEquals(captured[0].method, "GET");
     assertEquals(captured[0].url.pathname, "/api/index.php/invoices/99");
-    assertEquals((result.content as { invoice: unknown }).invoice, {
-      id: 99,
-      ref: "FA2301-001",
-      lines: [{ desc: "Consulting", qty: "2" }],
-    });
+    const content = result.content as Record<string, unknown>;
+    assertEquals(content.invoice, native);
+    assertEquals(content._native, native);
+    assertEquals((content.data as Record<string, unknown>).name, "FA2301-001");
   } finally {
     restore();
   }
@@ -506,6 +506,8 @@ Deno.test("createDolibarrAdapter — unknown tool throws UnknownToolError", asyn
     "Unknown dolibarr tool: dolibarr.nope",
   );
 });
+
+// ── Wave 1: native filter / behavior tests ────────────────────────────────────
 
 Deno.test("createDolibarrAdapter — thirdparty_list filters by mode customer", async () => {
   const captured: CapturedFetch[] = [];
@@ -993,5 +995,361 @@ Deno.test("createDolibarrAdapter — stockmovement_list calls Dolibarr stockmove
     );
   } finally {
     restore();
+  }
+});
+
+// ── Wave 2: invoice-viewer _meta + payload mapping ────────────────────────────
+
+Deno.test("createDolibarrAdapter — invoice_get tool has ERP_INVOICE_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) => t.name === "dolibarr.invoice_get");
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/invoice-viewer" },
+  });
+});
+
+Deno.test("createDolibarrAdapter — invoice_get maps Dolibarr payload to invoice-viewer contract", async () => {
+  const native = {
+    id: 99,
+    ref: "FA2301-001",
+    statut: "2",
+    paye: "0",
+    multicurrency_code: "USD",
+    multicurrency_total_ttc: "1200.00",
+    multicurrency_total_ht: "1000.00",
+    multicurrency_total_tva: "200.00",
+    total_ttc: "1080.00",
+    total_ht: "900.00",
+    total_tva: "180.00",
+    lines: [{
+      desc: "Consulting",
+      multicurrency_subprice: "500.00",
+      multicurrency_total_ht: "1000.00",
+      subprice: "450.00",
+      total_ht: "900.00",
+      qty: "2",
+    }],
+  };
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: native }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "dolibarr.invoice_get",
+      { id: 99 },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.name, "FA2301-001");
+    assertEquals(data.status, "Paid/Closed");
+    assertEquals(data.currency, "USD");
+    assertEquals(data.grand_total, 1200.0);
+    assertEquals(data.net_total, 1000.0);
+    assertEquals(data.total_taxes_and_charges, 200.0);
+    assertEquals(data.items, [
+      { item_name: "Consulting", rate: 500.0, qty: "2", amount: 1000.0 },
+    ]);
+    assertEquals(content.invoice, native);
+    assertEquals(content._native, native);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createDolibarrAdapter — invoice_get leaves currency unset without coherent multicurrency totals", async () => {
+  const native = {
+    id: 55,
+    ref: "FA2301-002",
+    statut: "3",
+    paye: "0",
+    total_ttc: "500.00",
+    total_ht: "400.00",
+    total_tva: "100.00",
+    lines: [],
+  };
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: native }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "dolibarr.invoice_get",
+      { id: 55 },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    const data = content.data as Record<string, unknown>;
+    assertEquals(Object.hasOwn(data, "currency"), false);
+    assertEquals(data.status, "Abandoned");
+    assertEquals(data.items, []);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createDolibarrAdapter — invoice_get maps unknown invoice status explicitly", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: { id: 56, ref: "FA2301-003", statut: "9", paye: "0" },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "dolibarr.invoice_get",
+      { id: 56 },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.status, "Unknown (9)");
+  } finally {
+    restore();
+  }
+});
+
+// ── order_get: detail-viewer _meta + normalized data field ────────────────────
+
+Deno.test("createDolibarrAdapter — order_get tool has ERP_DETAIL_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) => t.name === "dolibarr.order_get");
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/detail-viewer" },
+  });
+});
+
+Deno.test("createDolibarrAdapter — order_get result includes normalized detail data", async () => {
+  const native = {
+    id: 77,
+    ref: "CO2301-001",
+    statut: "2",
+    socid: "42",
+    thirdparty: { name: "Acme Corp" },
+    date_commande: "2026-02-03",
+    date_livraison: "2026-02-20",
+    total_ttc: "1800.00",
+    total_ht: "1500.00",
+    total_tva: "300.00",
+    lines: [{
+      ref: "SVC-001",
+      desc: "Consulting",
+      subprice: "500.00",
+      total_ht: "1500.00",
+      qty: "3",
+    }],
+  };
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: native }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "dolibarr.order_get",
+      { id: 77 },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    // backward-compat field
+    assertEquals(content.order, native);
+    assertEquals(content._native, native);
+    // normalized data
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.name, "CO2301-001");
+    assertEquals(data.status, "Shipment on process");
+    assertEquals(data.party_name, "Acme Corp");
+    assertEquals(data.socid, "42");
+    assertEquals(data.transaction_date, "2026-02-03");
+    assertEquals(data.delivery_date, "2026-02-20");
+    assertEquals(data.grand_total, 1800.0);
+    assertEquals(data.net_total, 1500.0);
+    assertEquals(data.total_taxes_and_charges, 300.0);
+    assertEquals(data.items, [
+      {
+        item_code: "SVC-001",
+        item_name: "Consulting",
+        qty: "3",
+        rate: 500.0,
+        amount: 1500.0,
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createDolibarrAdapter — order_get maps closed and unknown order statuses", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: { id: 78, ref: "CO2301-002", statut: "3" },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const closed = await adapter.callTool(
+      "dolibarr.order_get",
+      { id: 78 },
+      { tenantId: "acme", actorSubject: null },
+    );
+    assertEquals(
+      ((closed.content as Record<string, unknown>).data as Record<
+        string,
+        unknown
+      >).status,
+      "Closed",
+    );
+  } finally {
+    restore();
+  }
+
+  const capturedUnknown: CapturedFetch[] = [];
+  const restoreUnknown = mockFetch({
+    status: 200,
+    body: { id: 79, ref: "CO2301-003", statut: "9" },
+  }, capturedUnknown);
+
+  try {
+    const adapter = createTestAdapter();
+    const unknown = await adapter.callTool(
+      "dolibarr.order_get",
+      { id: 79 },
+      { tenantId: "acme", actorSubject: null },
+    );
+    assertEquals(
+      ((unknown.content as Record<string, unknown>).data as Record<
+        string,
+        unknown
+      >).status,
+      "Unknown (9)",
+    );
+  } finally {
+    restoreUnknown();
+  }
+});
+
+// ── proposal_get: detail-viewer _meta + normalized data field ─────────────────
+
+Deno.test("createDolibarrAdapter — proposal_get tool has ERP_DETAIL_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) => t.name === "dolibarr.proposal_get");
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/detail-viewer" },
+  });
+});
+
+Deno.test("createDolibarrAdapter — proposal_get result includes normalized detail data", async () => {
+  const native = {
+    id: 88,
+    ref: "PR2301-001",
+    statut: "3",
+    socid: "42",
+    socname: "Acme Corp",
+    datep: "2026-03-03",
+    fin_validite: "2026-04-03",
+    total_ttc: "950.00",
+    total_ht: "800.00",
+    total_tva: "150.00",
+    lines: [{
+      product_ref: "SVC-002",
+      desc: "Discovery",
+      subprice: "800.00",
+      total_ht: "800.00",
+      qty: "1",
+    }],
+  };
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: native }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "dolibarr.proposal_get",
+      { id: 88 },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    // backward-compat field
+    assertEquals(content.proposal, native);
+    assertEquals(content._native, native);
+    // normalized data
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.name, "PR2301-001");
+    assertEquals(data.status, "Not signed");
+    assertEquals(data.party_name, "Acme Corp");
+    assertEquals(data.socid, "42");
+    assertEquals(data.transaction_date, "2026-03-03");
+    assertEquals(data.valid_till, "2026-04-03");
+    assertEquals(data.grand_total, 950.0);
+    assertEquals(data.net_total, 800.0);
+    assertEquals(data.total_taxes_and_charges, 150.0);
+    assertEquals(data.items, [
+      {
+        item_code: "SVC-002",
+        item_name: "Discovery",
+        qty: "1",
+        rate: 800.0,
+        amount: 800.0,
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createDolibarrAdapter — proposal_get maps billed and unknown proposal statuses", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: { id: 89, ref: "PR2301-002", statut: "4" },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const billed = await adapter.callTool(
+      "dolibarr.proposal_get",
+      { id: 89 },
+      { tenantId: "acme", actorSubject: null },
+    );
+    assertEquals(
+      ((billed.content as Record<string, unknown>).data as Record<
+        string,
+        unknown
+      >).status,
+      "Billed",
+    );
+  } finally {
+    restore();
+  }
+
+  const capturedUnknown: CapturedFetch[] = [];
+  const restoreUnknown = mockFetch({
+    status: 200,
+    body: { id: 90, ref: "PR2301-003", statut: "9" },
+  }, capturedUnknown);
+
+  try {
+    const adapter = createTestAdapter();
+    const unknown = await adapter.callTool(
+      "dolibarr.proposal_get",
+      { id: 90 },
+      { tenantId: "acme", actorSubject: null },
+    );
+    assertEquals(
+      ((unknown.content as Record<string, unknown>).data as Record<
+        string,
+        unknown
+      >).status,
+      "Unknown (9)",
+    );
+  } finally {
+    restoreUnknown();
   }
 });

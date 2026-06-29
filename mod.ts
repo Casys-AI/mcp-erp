@@ -31,11 +31,24 @@ export type {
 
 // ─── Registry & adapters ───────────────────────────────────────────
 export { buildAdapter, REGISTERED_ERP_TYPES } from "./src/registry.ts";
-export { ErpToolsClient } from "./src/client.ts";
+export { buildMultiTenantHandlersMap, ErpToolsClient } from "./src/client.ts";
 export { erpToolErrorMapper } from "./src/error-mapper.ts";
 export { createErpMcpApp } from "./src/mcp-app.ts";
 export { getErpToolDefinitions } from "./src/tool-catalog.ts";
+
+// ─── Multi-tenant remote boundary ─────────────────────────────────
 export {
+  buildAdapterFromProvider,
+  ErpProviderError,
+} from "./src/connection-provider.ts";
+export type {
+  ErpAdapterCache,
+  ErpConnectionProvider,
+} from "./src/connection-provider.ts";
+export { createErpRemoteApp } from "./src/remote-app.ts";
+export type { CreateErpRemoteAppOptions } from "./src/remote-app.ts";
+export {
+  ERP_DETAIL_META,
   ERP_DIAGNOSTICS_META,
   ERP_DOCLIST_META,
   ERP_INVOICE_META,

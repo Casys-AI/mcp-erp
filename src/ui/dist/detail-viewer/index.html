@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detail Viewer - mcp-erp</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --text: #18202b;
+        --muted: #607086;
+        --line: #dfe5ee;
+        --accent: #19705f;
+        --warn: #a65c00;
+        --chip: #edf4f2;
+        --ok: #d1ede8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 5px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 16px;
+      }
+
+      .wide {
+        grid-column: 1 / -1;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 650;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: 140px minmax(0, 1fr);
+        gap: 10px 12px;
+        margin: 0;
+      }
+
+      dt {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      dd {
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      thead th {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      tbody td {
+        padding: 8px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .totals-row {
+        display: flex;
+        justify-content: flex-end;
+        gap: 24px;
+        padding: 8px 0 0;
+        font-size: 13px;
+      }
+
+      .totals-row span {
+        color: var(--muted);
+      }
+
+      .totals-row strong {
+        font-weight: 650;
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 28px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .error {
+        border: 1px solid #fcd0d0;
+        border-radius: 8px;
+        padding: 16px;
+        background: #fff5f5;
+        color: #922;
+        font-size: 13px;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          padding: 16px;
+        }
+
+        header {
+          display: block;
+        }
+
+        .badge {
+          margin-top: 10px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        dl {
+          grid-template-columns: 100px minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="empty">No document data</div>
+    </main>
+    <script>
+      function extractData(message) {
+        if (!message || typeof message !== "object") return null;
+        if (message.mcpData && typeof message.mcpData === "object") {
+          return unwrapData(message.mcpData);
+        }
+        if (message.structuredContent && typeof message.structuredContent === "object") {
+          return unwrapData(message.structuredContent);
+        }
+        if (
+          message.params &&
+          typeof message.params.structuredContent === "object"
+        ) {
+          return unwrapData(message.params.structuredContent);
+        }
+        if (
+          message.params &&
+          message.params.result &&
+          typeof message.params.result.structuredContent === "object"
+        ) {
+          return unwrapData(message.params.result.structuredContent);
+        }
+        var content = message.params && message.params.content;
+        if (Array.isArray(content)) {
+          var text = content.find(function(item) {
+            return item && item.type === "text" && typeof item.text === "string";
+          });
+          if (text) {
+            try {
+              return unwrapData(JSON.parse(text.text));
+            } catch (_error) {
+              return null;
+            }
+          }
+        }
+        if (message.name || message.status || message.grand_total !== undefined) {
+          return unwrapData(message);
+        }
+        return null;
+      }
+
+      function unwrapData(payload) {
+        if (!payload || typeof payload !== "object") return payload;
+        if (
+          payload.data &&
+          typeof payload.data === "object" &&
+          !Array.isArray(payload.data)
+        ) {
+          return payload.data;
+        }
+        return payload;
+      }
+
+      function text(value, fallback) {
+        if (value === undefined || value === null || value === "") {
+          return fallback !== undefined ? fallback : "—";
+        }
+        return String(value);
+      }
+
+      function escapeHtml(value) {
+        return text(value, "").replace(/[&<>"']/g, function(char) {
+          return {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+          }[char];
+        });
+      }
+
+      function fmt(value) {
+        if (value === undefined || value === null) return "—";
+        var n = parseFloat(String(value));
+        if (isNaN(n)) return escapeHtml(value);
+        return n.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+      }
+
+      function renderItems(items, currency) {
+        if (!Array.isArray(items) || items.length === 0) {
+          return "<tr><td colspan=\"4\" style=\"color:var(--muted);text-align:center;padding:12px\">No line items</td></tr>";
+        }
+        return items.map(function(item) {
+          if (!item || typeof item !== "object") return "";
+          var i = item;
+          var name = escapeHtml(i.item_name || i.name || i.desc || "");
+          var qty = escapeHtml(text(i.qty, "1"));
+          var rate = fmt(i.rate !== undefined ? i.rate : i.subprice);
+          var total = "";
+          if (i.amount !== undefined) {
+            total = fmt(i.amount);
+          } else if (i.rate !== undefined && i.qty !== undefined) {
+            var computed = parseFloat(String(i.rate)) * parseFloat(String(i.qty));
+            if (!isNaN(computed)) total = fmt(computed);
+          }
+          return "<tr>" +
+            "<td>" + name + "</td>" +
+            "<td style=\"text-align:right\">" + qty + "</td>" +
+            "<td style=\"text-align:right\">" + rate + "</td>" +
+            "<td style=\"text-align:right\">" + (total || "—") + "</td>" +
+            "</tr>";
+        }).join("");
+      }
+
+      function render(data) {
+        if (data._error) {
+          document.getElementById("app").innerHTML =
+            "<div class=\"error\">Unable to load document. Please try again.</div>";
+          return;
+        }
+
+        var currency = escapeHtml(text(data.currency, ""));
+        var currencySuffix = currency ? " " + currency : "";
+
+        var partyLabel = data.customer
+          ? "Customer"
+          : (data.party_name ? "Party" : (data.socid ? "Third-party ID" : ""));
+        var partyValue = escapeHtml(
+          text(data.customer || data.party_name || data.socid, "")
+        );
+
+        var dateLabel = data.posting_date
+          ? "Date"
+          : (data.transaction_date ? "Date" : (data.date_commande ? "Date" : ""));
+        var dateValue = escapeHtml(
+          text(
+            data.posting_date || data.transaction_date || data.date_commande,
+            ""
+          )
+        );
+
+        var dueDateLabel = data.due_date
+          ? "Due date"
+          : (data.delivery_date ? "Delivery" : (data.valid_till ? "Valid until" : ""));
+        var dueDateValue = escapeHtml(
+          text(data.due_date || data.delivery_date || data.valid_till, "")
+        );
+
+        var metaFields = "";
+        if (partyLabel && partyValue) {
+          metaFields += "<dt>" + escapeHtml(partyLabel) + "</dt><dd>" + partyValue + "</dd>";
+        }
+        if (dateLabel && dateValue) {
+          metaFields += "<dt>" + escapeHtml(dateLabel) + "</dt><dd>" + dateValue + "</dd>";
+        }
+        if (dueDateLabel && dueDateValue) {
+          metaFields += "<dt>" + escapeHtml(dueDateLabel) + "</dt><dd>" + dueDateValue + "</dd>";
+        }
+
+        var totalsHtml = "";
+        if (data.grand_total !== undefined || data.total_ttc !== undefined) {
+          var gt = data.grand_total !== undefined ? data.grand_total : data.total_ttc;
+          var nt = data.net_total !== undefined
+            ? data.net_total
+            : (data.total_ht !== undefined ? data.total_ht : null);
+          var tax = data.total_taxes_and_charges !== undefined
+            ? data.total_taxes_and_charges
+            : (data.total_tva !== undefined ? data.total_tva : null);
+          totalsHtml =
+            "<div class=\"panel wide\">" +
+              "<h2>Totals</h2>" +
+              "<dl>" +
+                (nt !== null ? "<dt>Net total</dt><dd>" + fmt(nt) + currencySuffix + "</dd>" : "") +
+                (tax !== null ? "<dt>Taxes</dt><dd>" + fmt(tax) + currencySuffix + "</dd>" : "") +
+                "<dt>Grand total</dt><dd>" + fmt(gt) + currencySuffix + "</dd>" +
+              "</dl>" +
+            "</div>";
+        }
+
+        var items = data.items || data.lines || [];
+
+        document.getElementById("app").innerHTML =
+          "<header>" +
+            "<div>" +
+              "<h1>" + escapeHtml(text(data.name || data.ref, "Document")) + "</h1>" +
+              "<div class=\"subtitle\">Document detail</div>" +
+            "</div>" +
+            "<span class=\"badge\">" + escapeHtml(text(data.status, "—")) + "</span>" +
+          "</header>" +
+          "<section class=\"grid\">" +
+            (metaFields
+              ? "<div class=\"panel wide\"><h2>Details</h2><dl>" + metaFields + "</dl></div>"
+              : "") +
+            "<div class=\"panel wide\">" +
+              "<h2>Line Items</h2>" +
+              "<table>" +
+                "<thead><tr>" +
+                  "<th>Description</th>" +
+                  "<th style=\"text-align:right\">Qty</th>" +
+                  "<th style=\"text-align:right\">Rate" + (currency ? " (" + currency + ")" : "") + "</th>" +
+                  "<th style=\"text-align:right\">Amount</th>" +
+                "</tr></thead>" +
+                "<tbody>" + renderItems(items, currency) + "</tbody>" +
+              "</table>" +
+            "</div>" +
+            totalsHtml +
+          "</section>";
+      }
+
+      function accept(message) {
+        var data = extractData(message);
+        if (data) render(data);
+      }
+
+      accept(window.mcpData);
+
+      window.addEventListener("message", function(event) {
+        var message = event.data;
+        if (message && message.jsonrpc === "2.0" && message.id === "mcp-init") {
+          window.parent.postMessage({
+            jsonrpc: "2.0",
+            method: "ui/notifications/initialized"
+          }, "*");
+          return;
+        }
+        if (
+          message &&
+          message.jsonrpc === "2.0" &&
+          message.method === "ui/notifications/tool-input"
+        ) {
+          return;
+        }
+        accept(message);
+      });
+
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          jsonrpc: "2.0",
+          id: "mcp-init",
+          method: "ui/initialize",
+          params: {
+            clientInfo: { name: "mcp-erp detail-viewer", version: "1.0.0" },
+            capabilities: {}
+          }
+        }, "*");
+      }
+    </script>
+  </body>
+</html>

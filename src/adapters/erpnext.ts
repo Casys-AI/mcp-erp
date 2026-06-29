@@ -25,6 +25,7 @@ import {
   UnknownToolError,
 } from "../adapter.ts";
 import {
+  ERP_DETAIL_META,
   ERP_DIAGNOSTICS_META,
   ERP_DOCLIST_META,
   ERP_INVOICE_META,
@@ -413,6 +414,7 @@ const TOOLS: readonly ErpToolDefinition[] = [
     annotations: {
       readOnlyHint: true,
     },
+    _meta: ERP_DETAIL_META,
   },
   {
     name: "erpnext.quotation_list",
@@ -482,6 +484,7 @@ const TOOLS: readonly ErpToolDefinition[] = [
     annotations: {
       readOnlyHint: true,
     },
+    _meta: ERP_DETAIL_META,
   },
   {
     name: "erpnext.supplier_list",
@@ -1213,6 +1216,7 @@ export function createErpnextAdapter(
         );
         return {
           content: {
+            data: salesOrder,
             salesOrder,
           },
           summary: `ERPNext sales_order_get returned ${
@@ -1290,6 +1294,7 @@ export function createErpnextAdapter(
         );
         return {
           content: {
+            data: quotation,
             quotation,
           },
           summary: `ERPNext quotation_get returned ${

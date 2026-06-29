@@ -750,6 +750,8 @@ Deno.test("createErpnextAdapter — unknown tool throws UnknownToolError", async
   );
 });
 
+// ── Wave 1: supplier / payment / stock reads ──────────────────────────────────
+
 Deno.test("createErpnextAdapter — supplier_list calls Frappe Supplier list with filters", async () => {
   const captured: CapturedFetch[] = [];
   const restore = mockFetch({
@@ -1037,6 +1039,100 @@ Deno.test("createErpnextAdapter — bin_list calls Frappe Bin list with filters"
         ordered_qty: 50,
       },
     ]);
+  } finally {
+    restore();
+  }
+});
+
+// ── Wave 2: detail-viewer _meta + data field ──────────────────────────────────
+
+Deno.test("createErpnextAdapter — sales_order_get tool has ERP_DETAIL_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) =>
+    t.name === "erpnext.sales_order_get"
+  );
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/detail-viewer" },
+  });
+});
+
+Deno.test("createErpnextAdapter — sales_order_get result includes data field", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: {
+        name: "SO-001",
+        customer: "CUST-001",
+        status: "To Deliver and Bill",
+        items: [{ item_code: "ITEM-001", qty: 3 }],
+      },
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.sales_order_get",
+      { name: "SO-001" },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.name, "SO-001");
+    assertEquals(data.status, "To Deliver and Bill");
+    // backward-compat field
+    assertEquals(
+      (content.salesOrder as Record<string, unknown>).name,
+      "SO-001",
+    );
+  } finally {
+    restore();
+  }
+});
+
+// ── quotation_get: detail-viewer _meta + data field ──────────────────────────
+
+Deno.test("createErpnextAdapter — quotation_get tool has ERP_DETAIL_META", () => {
+  const adapter = createTestAdapter();
+  const tool = adapter.tools().find((t) => t.name === "erpnext.quotation_get");
+  assertEquals(tool?._meta, {
+    ui: { resourceUri: "ui://mcp-erp/detail-viewer" },
+  });
+});
+
+Deno.test("createErpnextAdapter — quotation_get result includes data field", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: {
+        name: "QTN-001",
+        party_name: "CUST-001",
+        status: "Open",
+        items: [{ item_code: "ITEM-001", qty: 1 }],
+      },
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.quotation_get",
+      { name: "QTN-001" },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    const content = result.content as Record<string, unknown>;
+    const data = content.data as Record<string, unknown>;
+    assertEquals(data.name, "QTN-001");
+    assertEquals(data.status, "Open");
+    // backward-compat field
+    assertEquals(
+      (content.quotation as Record<string, unknown>).name,
+      "QTN-001",
+    );
   } finally {
     restore();
   }

@@ -87,23 +87,50 @@ deno task serve -- --config ./mcp-erp.config.json --port=3020
 
 ### MCP Apps viewers
 
-`createErpMcpApp()` registers bundled MCP Apps viewers under `ui://mcp-erp/*`.
-The first list/detail viewers are ported from `mcp-erpnext`; the diagnostics
-viewer is a small package-native view:
+`createErpMcpApp()` registers four bundled MCP Apps viewers under
+`ui://mcp-erp/*`. The list, invoice, and detail viewers read provider-agnostic
+display data; provider-native payloads stay beside that display contract for
+callers that need them:
 
 ```text
 ui://mcp-erp/doclist-viewer
 ui://mcp-erp/invoice-viewer
 ui://mcp-erp/diagnostics-viewer
+ui://mcp-erp/detail-viewer
 ```
 
 `erpnext.ping` and `dolibarr.ping` point to `diagnostics-viewer` and return the
 ERP type, API URL, tenant context, and exposed tool surface. Provider-native
-list tools point to `doclist-viewer`. `erpnext.sales_invoice_get` points to
-`invoice-viewer`. Dolibarr invoice detail stays native for now and will use the
-invoice viewer after a small provider-to-viewer payload mapping. Sales order,
-quotation, order, and proposal detail tools also stay native until a shared
-detail viewer lands.
+list tools point to `doclist-viewer`. `erpnext.sales_invoice_get` and
+`dolibarr.invoice_get` point to `invoice-viewer`. ERPNext sales orders and
+quotations plus Dolibarr orders and proposals point to `detail-viewer`.
+
+Detail/invoice viewers read `structuredContent.data` first and fall back to the
+root payload for legacy callers. The normalized `data` object uses shared fields
+such as `name`, `status`, `currency`, `grand_total`, `net_total`,
+`total_taxes_and_charges`, dates, parties, and `items`. Native records are kept
+as siblings, not interpreted by viewers:
+
+```ts
+// Dolibarr invoice detail
+{
+  data: mappedInvoice,
+  invoice: nativeDolibarrInvoice,
+  _native: nativeDolibarrInvoice,
+}
+
+// Dolibarr order/proposal detail
+{
+  data: mappedDocument,
+  order: nativeDolibarrOrder,       // or proposal: nativeDolibarrProposal
+  _native: nativeDolibarrDocument,
+}
+```
+
+Compatibility note: detail-style consumers should prefer `content.data`. The
+root fallback remains for older viewer payloads, and Dolibarr invoice callers
+that previously consumed the native invoice can use `content.invoice` or
+`content._native`.
 
 ### Current tool surface
 
@@ -167,6 +194,7 @@ const ERP_VIEWERS
 const ERP_DOCLIST_META
 const ERP_INVOICE_META
 const ERP_DIAGNOSTICS_META
+const ERP_DETAIL_META
 class FrappeApiError
 class DolibarrApiError
 ```

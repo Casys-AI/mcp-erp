@@ -18,6 +18,7 @@ export const ERP_VIEWERS = [
   "doclist-viewer",
   "invoice-viewer",
   "diagnostics-viewer",
+  "detail-viewer",
 ] as const;
 
 export type ErpViewerName = (typeof ERP_VIEWERS)[number];
@@ -45,6 +46,7 @@ function viewer(name: ErpViewerName): ErpToolMeta {
 export const ERP_DOCLIST_META: ErpToolMeta = viewer("doclist-viewer");
 export const ERP_INVOICE_META: ErpToolMeta = viewer("invoice-viewer");
 export const ERP_DIAGNOSTICS_META: ErpToolMeta = viewer("diagnostics-viewer");
+export const ERP_DETAIL_META: ErpToolMeta = viewer("detail-viewer");
 
 function isRemoteUrl(path: string): boolean {
   return path.startsWith("https://") || path.startsWith("http://");

@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import type { ToolHandlerContext } from "@casys/mcp-server";
 import type {
   ErpAdapter,
@@ -6,7 +6,11 @@ import type {
   ErpToolCallResult,
   ErpToolDefinition,
 } from "./adapter.ts";
-import { ErpToolsClient } from "./client.ts";
+import { buildMultiTenantHandlersMap, ErpToolsClient } from "./client.ts";
+import {
+  type ErpConnectionProvider,
+  ErpProviderError,
+} from "./connection-provider.ts";
 
 class FakeErpAdapter implements ErpAdapter {
   readonly erpType = "erpnext";
@@ -173,4 +177,99 @@ Deno.test("ErpToolsClient — propage request.signal depuis ToolHandlerContext",
 
   assertEquals(adapter.calls.length, 1);
   assertEquals(adapter.calls[0].ctx.signal, req.signal);
+});
+
+// ---------------------------------------------------------------------------
+// buildMultiTenantHandlersMap tests
+// ---------------------------------------------------------------------------
+
+const CUSTOMER_LIST_TOOL: ErpToolDefinition = {
+  name: "erpnext.customer_list",
+  description: "List customers.",
+  inputSchema: {
+    type: "object",
+    properties: { limit: { type: "integer" } },
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: true },
+};
+
+Deno.test("buildMultiTenantHandlersMap — tenant A routes to the right adapter", async () => {
+  const adapterA = new FakeErpAdapter();
+  const provider: ErpConnectionProvider = {
+    resolve: () =>
+      Promise.resolve({
+        erpType: "erpnext",
+        apiUrl: "https://erp.test",
+        apiKey: "k",
+        apiSecret: "s",
+        sandbox: true,
+      }),
+  };
+
+  // Inject the adapter directly via cache so no real HTTP is made
+  const cache = {
+    get: (id: string) => id === "tenant-A" ? adapterA : undefined,
+    set: () => {},
+  };
+
+  const handlers = buildMultiTenantHandlersMap(
+    provider,
+    [CUSTOMER_LIST_TOOL],
+    cache,
+  );
+  const handler = handlers.get("erpnext.customer_list");
+  if (!handler) throw new Error("missing handler");
+
+  await handler({ limit: 5 }, {
+    toolName: "erpnext.customer_list",
+    authInfo: {
+      subject: "user-1",
+      scopes: [],
+      tenantId: "tenant-A",
+    },
+  });
+
+  assertEquals(adapterA.calls.length, 1);
+  assertEquals(adapterA.calls[0].ctx.tenantId, "tenant-A");
+  assertEquals(adapterA.calls[0].ctx.actorSubject, "user-1");
+});
+
+Deno.test("buildMultiTenantHandlersMap — ctx without authInfo throws TENANT_MISSING", async () => {
+  const provider: ErpConnectionProvider = {
+    resolve: () => Promise.reject(new Error("should not be called")),
+  };
+
+  const handlers = buildMultiTenantHandlersMap(provider, [CUSTOMER_LIST_TOOL]);
+  const handler = handlers.get("erpnext.customer_list");
+  if (!handler) throw new Error("missing handler");
+
+  await assertRejects(
+    async () => {
+      await handler({});
+    },
+    ErpProviderError,
+    "TENANT_MISSING",
+  );
+});
+
+Deno.test("buildMultiTenantHandlersMap — ctx.authInfo without tenantId throws TENANT_MISSING", async () => {
+  const provider: ErpConnectionProvider = {
+    resolve: () => Promise.reject(new Error("should not be called")),
+  };
+
+  const handlers = buildMultiTenantHandlersMap(provider, [CUSTOMER_LIST_TOOL]);
+  const handler = handlers.get("erpnext.customer_list");
+  if (!handler) throw new Error("missing handler");
+
+  await assertRejects(
+    async () => {
+      await handler({}, {
+        toolName: "erpnext.customer_list",
+        authInfo: { subject: "user-1", scopes: [] }, // no tenantId
+      });
+    },
+    ErpProviderError,
+    "TENANT_MISSING",
+  );
 });

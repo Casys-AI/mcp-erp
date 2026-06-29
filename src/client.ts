@@ -20,6 +20,12 @@ import type {
   ErpToolCallResult,
   ErpToolDefinition,
 } from "./adapter.ts";
+import {
+  buildAdapterFromProvider,
+  type ErpAdapterCache,
+  type ErpConnectionProvider,
+  ErpProviderError,
+} from "./connection-provider.ts";
 
 export interface ErpToolsClientOptions {
   readonly tenantId: string;
@@ -93,6 +99,68 @@ export class ErpToolsClient {
   ): Promise<ErpToolCallResult> {
     return await adapter.callTool(name, args, this.callContext);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenant handler map (standalone — no per-call state needed at factory)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a handler map where each handler resolves the ERP adapter for the
+ * current request's tenant on every call.
+ *
+ * Pipeline per call:
+ *   1. Fast-fail: `ctx.authInfo.tenantId` must be present — throws
+ *      `ErpProviderError("TENANT_MISSING")` otherwise.
+ *   2. Resolve adapter via `buildAdapterFromProvider` (cache-aware).
+ *   3. Call `adapter.callTool` with `{ tenantId, actorSubject, signal }`.
+ *
+ * @param provider - Resolves an `ErpConnection` for a given tenant id.
+ * @param tools    - Static tool catalog entries to generate handlers for.
+ * @param cache    - Optional adapter cache (shared across calls for efficiency).
+ */
+export function buildMultiTenantHandlersMap(
+  provider: ErpConnectionProvider,
+  tools: ErpToolDefinition[],
+  cache?: ErpAdapterCache,
+): Map<string, ToolHandler> {
+  const handlers = new Map<string, ToolHandler>();
+
+  for (const tool of tools) {
+    const toolName = tool.name;
+    handlers.set(
+      toolName,
+      async (
+        args: Record<string, unknown>,
+        ctx?: ToolHandlerContext,
+      ): Promise<unknown> => {
+        const tenantId = ctx?.authInfo?.tenantId;
+        if (!tenantId) {
+          throw new ErpProviderError(
+            "TENANT_MISSING",
+            { tool: toolName },
+            "ensure createMultiTenantMiddleware is configured before tool handlers",
+          );
+        }
+
+        const adapter = await buildAdapterFromProvider(
+          provider,
+          tenantId,
+          cache,
+        );
+        const callCtx: ErpToolCallContext = {
+          tenantId,
+          actorSubject: ctx?.authInfo?.subject ?? null,
+          ...(ctx?.request?.signal ? { signal: ctx.request.signal } : {}),
+        };
+
+        const result = await adapter.callTool(toolName, args, callCtx);
+        return toStructuredToolResult(result);
+      },
+    );
+  }
+
+  return handlers;
 }
 
 function toStructuredToolResult(
