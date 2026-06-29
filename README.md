@@ -73,11 +73,21 @@ const app = new McpApp({
 
 toolsClient.registerTools(app, adapter);
 
-await app.start(); // stdio
+await app.start(); // stdio — works on Deno AND Node (npm build)
 
-// Or HTTP, useful for Inspector / hosted routes:
+// HTTP with port ownership (Deno AND Node — npm build uses node:http instead of Deno.serve):
 // await app.startHttp({ port: 3020, hostname: "localhost" });
+
+// HTTP embedded in an existing framework (Deno AND Node — npm build supported):
+// const handler = await app.getFetchHandler();
+// // handler is a Web-standard fetch function; mount it in Hono, Express, etc.
 ```
+
+> **Node.js / npm** — both `startHttp()` and `getFetchHandler()` work on Node.
+> The npm build replaces `Deno.serve` with a `node:http` adapter so
+> `startHttp()` binds a real TCP port. Use `getFetchHandler()` when you want to
+> mount the handler inside an existing Node HTTP framework (Hono, Express, etc.)
+> instead.
 
 For a local HTTP smoke test against a hosted or local ERP instance:
 
