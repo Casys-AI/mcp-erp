@@ -116,6 +116,39 @@ const QUOTATION_FIELDS = [
   "modified",
 ] as const;
 
+const SUPPLIER_FIELDS = [
+  "name",
+  "supplier_name",
+  "supplier_type",
+  "supplier_group",
+  "country",
+  "disabled",
+  "modified",
+] as const;
+
+const PAYMENT_ENTRY_FIELDS = [
+  "name",
+  "payment_type",
+  "party_type",
+  "party",
+  "posting_date",
+  "paid_amount",
+  "paid_from_account_currency",
+  "paid_to_account_currency",
+  "status",
+  "modified",
+] as const;
+
+const BIN_FIELDS = [
+  "name",
+  "item_code",
+  "warehouse",
+  "actual_qty",
+  "reserved_qty",
+  "ordered_qty",
+  "modified",
+] as const;
+
 const TOOLS: readonly ErpToolDefinition[] = [
   {
     name: "erpnext.ping",
@@ -449,6 +482,173 @@ const TOOLS: readonly ErpToolDefinition[] = [
     annotations: {
       readOnlyHint: true,
     },
+  },
+  {
+    name: "erpnext.supplier_list",
+    description: "List ERPNext Supplier records through Frappe REST.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+        },
+        limitStart: {
+          type: "integer",
+          minimum: 0,
+          default: 0,
+        },
+        orderBy: {
+          type: "string",
+          minLength: 1,
+          default: "modified desc",
+        },
+        supplierGroup: {
+          type: "string",
+          minLength: 1,
+        },
+        supplierType: {
+          type: "string",
+          minLength: 1,
+        },
+        includeDisabled: {
+          type: "boolean",
+          default: false,
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+    _meta: ERP_DOCLIST_META,
+  },
+  {
+    name: "erpnext.supplier_get",
+    description: "Get one ERPNext Supplier record by name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          minLength: 1,
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "erpnext.payment_entry_list",
+    description: "List ERPNext Payment Entry records through Frappe REST.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+        },
+        limitStart: {
+          type: "integer",
+          minimum: 0,
+          default: 0,
+        },
+        orderBy: {
+          type: "string",
+          minLength: 1,
+          default: "modified desc",
+        },
+        partyType: {
+          type: "string",
+          minLength: 1,
+        },
+        party: {
+          type: "string",
+          minLength: 1,
+        },
+        paymentType: {
+          type: "string",
+          minLength: 1,
+        },
+        dateFrom: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+        },
+        dateTo: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+    _meta: ERP_DOCLIST_META,
+  },
+  {
+    name: "erpnext.payment_entry_get",
+    description: "Get one ERPNext Payment Entry by name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          minLength: 1,
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+  },
+  {
+    name: "erpnext.bin_list",
+    description:
+      "List ERPNext Bin (stock level) records through Frappe REST. Read-only; no individual Bin get (name is not a natural key).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          default: 20,
+        },
+        limitStart: {
+          type: "integer",
+          minimum: 0,
+          default: 0,
+        },
+        orderBy: {
+          type: "string",
+          minLength: 1,
+          default: "modified desc",
+        },
+        itemCode: {
+          type: "string",
+          minLength: 1,
+        },
+        warehouse: {
+          type: "string",
+          minLength: 1,
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: true,
+    },
+    _meta: ERP_DOCLIST_META,
   },
 ];
 
@@ -1095,6 +1295,177 @@ export function createErpnextAdapter(
           summary: `ERPNext quotation_get returned ${
             String(quotation.name ?? "quotation")
           }`,
+        };
+      }
+      if (name === "erpnext.supplier_list") {
+        const limit = readOptionalInteger(args, "limit", 20, {
+          min: 1,
+          max: 100,
+        });
+        const limitStart = readOptionalInteger(args, "limitStart", 0, {
+          min: 0,
+        });
+        const orderBy = readOptionalString(args, "orderBy", "modified desc");
+        const filters: FrappeFilter[] = [];
+        if (!readOptionalBoolean(args, "includeDisabled", false)) {
+          filters.push(["disabled", "=", 0]);
+        }
+        const supplierGroup = readOptionalStringArgument(args, "supplierGroup");
+        if (supplierGroup) {
+          filters.push(["supplier_group", "=", supplierGroup]);
+        }
+        const supplierType = readOptionalStringArgument(args, "supplierType");
+        if (supplierType) {
+          filters.push(["supplier_type", "=", supplierType]);
+        }
+        const suppliers = await client.list("Supplier", {
+          fields: SUPPLIER_FIELDS,
+          filters,
+          limitPageLength: limit,
+          limitStart,
+          orderBy,
+        }, { signal: _ctx.signal });
+        return {
+          content: {
+            doctype: "Supplier",
+            data: suppliers,
+            _title: "ERPNext Suppliers",
+            _rowAction: {
+              toolName: "erpnext.supplier_get",
+              idField: "name",
+              argName: "name",
+            },
+            suppliers,
+            count: suppliers.length,
+            limit,
+            limitStart,
+          },
+          summary:
+            `ERPNext supplier_list returned ${suppliers.length} supplier(s)`,
+        };
+      }
+      if (name === "erpnext.supplier_get") {
+        const supplier = await client.get(
+          "Supplier",
+          readRequiredString(args, "name"),
+          { signal: _ctx.signal },
+        );
+        return {
+          content: {
+            supplier,
+          },
+          summary: `ERPNext supplier_get returned ${
+            String(supplier.name ?? "supplier")
+          }`,
+        };
+      }
+      if (name === "erpnext.payment_entry_list") {
+        const limit = readOptionalInteger(args, "limit", 20, {
+          min: 1,
+          max: 100,
+        });
+        const limitStart = readOptionalInteger(args, "limitStart", 0, {
+          min: 0,
+        });
+        const orderBy = readOptionalString(args, "orderBy", "modified desc");
+        const filters: FrappeFilter[] = [];
+        const partyType = readOptionalStringArgument(args, "partyType");
+        if (partyType) {
+          filters.push(["party_type", "=", partyType]);
+        }
+        const party = readOptionalStringArgument(args, "party");
+        if (party) {
+          filters.push(["party", "=", party]);
+        }
+        const paymentType = readOptionalStringArgument(args, "paymentType");
+        if (paymentType) {
+          filters.push(["payment_type", "=", paymentType]);
+        }
+        const dateFrom = readOptionalStringArgument(args, "dateFrom");
+        if (dateFrom) {
+          filters.push(["posting_date", ">=", dateFrom]);
+        }
+        const dateTo = readOptionalStringArgument(args, "dateTo");
+        if (dateTo) {
+          filters.push(["posting_date", "<=", dateTo]);
+        }
+        const paymentEntries = await client.list("Payment Entry", {
+          fields: PAYMENT_ENTRY_FIELDS,
+          filters,
+          limitPageLength: limit,
+          limitStart,
+          orderBy,
+        }, { signal: _ctx.signal });
+        return {
+          content: {
+            doctype: "Payment Entry",
+            data: paymentEntries,
+            _title: "ERPNext Payment Entries",
+            _rowAction: {
+              toolName: "erpnext.payment_entry_get",
+              idField: "name",
+              argName: "name",
+            },
+            paymentEntries,
+            count: paymentEntries.length,
+            limit,
+            limitStart,
+          },
+          summary:
+            `ERPNext payment_entry_list returned ${paymentEntries.length} payment entry(ies)`,
+        };
+      }
+      if (name === "erpnext.payment_entry_get") {
+        const paymentEntry = await client.get(
+          "Payment Entry",
+          readRequiredString(args, "name"),
+          { signal: _ctx.signal },
+        );
+        return {
+          content: {
+            paymentEntry,
+          },
+          summary: `ERPNext payment_entry_get returned ${
+            String(paymentEntry.name ?? "payment entry")
+          }`,
+        };
+      }
+      if (name === "erpnext.bin_list") {
+        const limit = readOptionalInteger(args, "limit", 20, {
+          min: 1,
+          max: 100,
+        });
+        const limitStart = readOptionalInteger(args, "limitStart", 0, {
+          min: 0,
+        });
+        const orderBy = readOptionalString(args, "orderBy", "modified desc");
+        const filters: FrappeFilter[] = [];
+        const itemCode = readOptionalStringArgument(args, "itemCode");
+        if (itemCode) {
+          filters.push(["item_code", "=", itemCode]);
+        }
+        const warehouse = readOptionalStringArgument(args, "warehouse");
+        if (warehouse) {
+          filters.push(["warehouse", "=", warehouse]);
+        }
+        const bins = await client.list("Bin", {
+          fields: BIN_FIELDS,
+          filters,
+          limitPageLength: limit,
+          limitStart,
+          orderBy,
+        }, { signal: _ctx.signal });
+        return {
+          content: {
+            doctype: "Bin",
+            data: bins,
+            _title: "ERPNext Stock (Bin)",
+            bins,
+            count: bins.length,
+            limit,
+            limitStart,
+          },
+          summary: `ERPNext bin_list returned ${bins.length} bin(s)`,
         };
       }
       throw new UnknownToolError("erpnext", name);

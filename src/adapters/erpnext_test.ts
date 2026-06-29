@@ -68,6 +68,11 @@ Deno.test("createErpnextAdapter — exposes erpnext.ping in tools()", () => {
     "erpnext.sales_order_get",
     "erpnext.quotation_list",
     "erpnext.quotation_get",
+    "erpnext.supplier_list",
+    "erpnext.supplier_get",
+    "erpnext.payment_entry_list",
+    "erpnext.payment_entry_get",
+    "erpnext.bin_list",
   ]);
   assertEquals(tools[0]._meta, {
     ui: {
@@ -92,7 +97,7 @@ Deno.test("createErpnextAdapter — ping returns diagnostics", async () => {
     sandbox: true,
     tenantId: "acme",
     actorSubject: "user_1",
-    toolCount: 11,
+    toolCount: 16,
     toolNames: [
       "erpnext.ping",
       "erpnext.customer_list",
@@ -105,6 +110,11 @@ Deno.test("createErpnextAdapter — ping returns diagnostics", async () => {
       "erpnext.sales_order_get",
       "erpnext.quotation_list",
       "erpnext.quotation_get",
+      "erpnext.supplier_list",
+      "erpnext.supplier_get",
+      "erpnext.payment_entry_list",
+      "erpnext.payment_entry_get",
+      "erpnext.bin_list",
     ],
   });
 });
@@ -738,4 +748,296 @@ Deno.test("createErpnextAdapter — unknown tool throws UnknownToolError", async
     UnknownToolError,
     "Unknown erpnext tool: erpnext.nope",
   );
+});
+
+Deno.test("createErpnextAdapter — supplier_list calls Frappe Supplier list with filters", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: [
+        {
+          name: "SUPP-001",
+          supplier_name: "SupplierCo",
+          supplier_type: "Company",
+          supplier_group: "Distributor",
+        },
+      ],
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.supplier_list",
+      {
+        limit: 1,
+        supplierGroup: "Distributor",
+        supplierType: "Company",
+        includeDisabled: false,
+      },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier");
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("fields") ?? "[]"),
+      [
+        "name",
+        "supplier_name",
+        "supplier_type",
+        "supplier_group",
+        "country",
+        "disabled",
+        "modified",
+      ],
+    );
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("filters") ?? "[]"),
+      [
+        ["disabled", "=", 0],
+        ["supplier_group", "=", "Distributor"],
+        ["supplier_type", "=", "Company"],
+      ],
+    );
+    assertEquals(captured[0].url.searchParams.get("limit_page_length"), "1");
+    assertEquals((result.content as { count: number }).count, 1);
+    assertEquals((result.content as { suppliers: unknown[] }).suppliers, [
+      {
+        name: "SUPP-001",
+        supplier_name: "SupplierCo",
+        supplier_type: "Company",
+        supplier_group: "Distributor",
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createErpnextAdapter — supplier_get calls Frappe Supplier get", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: {
+        name: "SUPP-001",
+        supplier_name: "SupplierCo",
+        country: "France",
+      },
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.supplier_get",
+      { name: "SUPP-001" },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier/SUPP-001");
+    assertEquals((result.content as { supplier: unknown }).supplier, {
+      name: "SUPP-001",
+      supplier_name: "SupplierCo",
+      country: "France",
+    });
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createErpnextAdapter — payment_entry_list calls Frappe Payment Entry list with filters", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: [
+        {
+          name: "PE-001",
+          payment_type: "Receive",
+          party_type: "Customer",
+          party: "CUST-001",
+          paid_amount: 1200,
+        },
+      ],
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.payment_entry_list",
+      {
+        partyType: "Customer",
+        party: "CUST-001",
+        paymentType: "Receive",
+        dateFrom: "2026-01-01",
+        dateTo: "2026-01-31",
+      },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Payment%20Entry",
+    );
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("fields") ?? "[]"),
+      [
+        "name",
+        "payment_type",
+        "party_type",
+        "party",
+        "posting_date",
+        "paid_amount",
+        "paid_from_account_currency",
+        "paid_to_account_currency",
+        "status",
+        "modified",
+      ],
+    );
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("filters") ?? "[]"),
+      [
+        ["party_type", "=", "Customer"],
+        ["party", "=", "CUST-001"],
+        ["payment_type", "=", "Receive"],
+        ["posting_date", ">=", "2026-01-01"],
+        ["posting_date", "<=", "2026-01-31"],
+      ],
+    );
+    assertEquals((result.content as { count: number }).count, 1);
+    assertEquals(
+      (result.content as { paymentEntries: unknown[] }).paymentEntries,
+      [
+        {
+          name: "PE-001",
+          payment_type: "Receive",
+          party_type: "Customer",
+          party: "CUST-001",
+          paid_amount: 1200,
+        },
+      ],
+    );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createErpnextAdapter — payment_entry_get calls Frappe Payment Entry get", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: {
+        name: "PE-001",
+        payment_type: "Receive",
+        party_type: "Customer",
+        party: "CUST-001",
+        paid_amount: 1200,
+      },
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.payment_entry_get",
+      { name: "PE-001" },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Payment%20Entry/PE-001",
+    );
+    assertEquals(
+      (result.content as { paymentEntry: unknown }).paymentEntry,
+      {
+        name: "PE-001",
+        payment_type: "Receive",
+        party_type: "Customer",
+        party: "CUST-001",
+        paid_amount: 1200,
+      },
+    );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("createErpnextAdapter — bin_list calls Frappe Bin list with filters", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({
+    status: 200,
+    body: {
+      data: [
+        {
+          name: "ITEM-001::Main Warehouse",
+          item_code: "ITEM-001",
+          warehouse: "Main Warehouse",
+          actual_qty: 100,
+          reserved_qty: 10,
+          ordered_qty: 50,
+        },
+      ],
+    },
+  }, captured);
+
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.bin_list",
+      {
+        itemCode: "ITEM-001",
+        warehouse: "Main Warehouse",
+      },
+      { tenantId: "acme", actorSubject: null },
+    );
+
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(captured[0].url.pathname, "/api/resource/Bin");
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("fields") ?? "[]"),
+      [
+        "name",
+        "item_code",
+        "warehouse",
+        "actual_qty",
+        "reserved_qty",
+        "ordered_qty",
+        "modified",
+      ],
+    );
+    assertEquals(
+      JSON.parse(captured[0].url.searchParams.get("filters") ?? "[]"),
+      [
+        ["item_code", "=", "ITEM-001"],
+        ["warehouse", "=", "Main Warehouse"],
+      ],
+    );
+    assertEquals((result.content as { count: number }).count, 1);
+    assertEquals((result.content as { bins: unknown[] }).bins, [
+      {
+        name: "ITEM-001::Main Warehouse",
+        item_code: "ITEM-001",
+        warehouse: "Main Warehouse",
+        actual_qty: 100,
+        reserved_qty: 10,
+        ordered_qty: 50,
+      },
+    ]);
+  } finally {
+    restore();
+  }
 });

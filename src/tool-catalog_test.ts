@@ -32,6 +32,11 @@ Deno.test("getErpToolDefinitions — returns ERPNext definitions without credent
     "erpnext.sales_order_get",
     "erpnext.quotation_list",
     "erpnext.quotation_get",
+    "erpnext.supplier_list",
+    "erpnext.supplier_get",
+    "erpnext.payment_entry_list",
+    "erpnext.payment_entry_get",
+    "erpnext.bin_list",
   ]);
   assertEquals(tools[0].inputSchema, {
     type: "object",
@@ -55,6 +60,9 @@ Deno.test("getErpToolDefinitions — returns Dolibarr definitions without creden
     "dolibarr.order_get",
     "dolibarr.proposal_list",
     "dolibarr.proposal_get",
+    "dolibarr.payment_list",
+    "dolibarr.payment_get",
+    "dolibarr.stockmovement_list",
   ]);
   assertEquals(tools[0].inputSchema, {
     type: "object",
@@ -87,6 +95,11 @@ Deno.test("getErpToolDefinitions — returns a fresh array", () => {
     "erpnext.sales_order_get",
     "erpnext.quotation_list",
     "erpnext.quotation_get",
+    "erpnext.supplier_list",
+    "erpnext.supplier_get",
+    "erpnext.payment_entry_list",
+    "erpnext.payment_entry_get",
+    "erpnext.bin_list",
   ]);
 });
 
