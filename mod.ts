@@ -67,3 +67,13 @@ export {
   createDolibarrAdapter,
   DolibarrApiError,
 } from "./src/adapters/dolibarr.ts";
+
+// ─── Wave 3 — normalized cross-ERP layer ──────────────────────────────────
+export type {
+  ErpLifecycleState,
+  NormalizedPayload,
+  NormalizedView,
+} from "./src/normalized.ts";
+export { missingNativeIdError, NormalizedError } from "./src/normalized.ts";
+export { NormalizedAdapter } from "./src/normalized-adapter.ts";
+export type { NormalizedAdapterOptions } from "./src/normalized-adapter.ts";

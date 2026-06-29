@@ -924,7 +924,8 @@ function mapDolibarrStatusValue(
   return `Unknown (${formatUnknownStatus(statut)})`;
 }
 
-function parseIntegerLike(value: unknown): number | undefined {
+/** Exported for reuse by Wave 3 lifecycle mapper. */
+export function parseIntegerLike(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value !== "string" || value.trim() === "") return undefined;
   const parsed = Number(value);
@@ -994,8 +995,11 @@ function mapDolibarrLines(
 /**
  * Map a Dolibarr native invoice payload to the invoice-viewer `data` contract.
  * The full native payload is preserved by the tool result beside `data`.
+ *
+ * Exported for reuse by Wave 3 normalizers. Do not call from outside the
+ * adapters package — this is an implementation detail, not a stable API.
  */
-function mapDolibarrInvoice(
+export function mapDolibarrInvoice(
   native: Record<string, unknown>,
 ): Record<string, unknown> {
   const money = readDolibarrMoney(native);
@@ -1023,8 +1027,10 @@ function mapDolibarrInvoice(
 /**
  * Build a normalized `data` field for a Dolibarr document (order/proposal)
  * suitable for the detail-viewer contract.
+ *
+ * Exported for reuse by Wave 3 normalizers.
  */
-function mapDolibarrDocData(
+export function mapDolibarrDocData(
   native: Record<string, unknown>,
   type: "order" | "proposal",
 ): Record<string, unknown> {
