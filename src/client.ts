@@ -12,6 +12,7 @@ import type {
   MCPTool,
   StructuredToolResult,
   ToolHandler,
+  ToolHandlerContext,
 } from "@casys/mcp-server";
 import type {
   ErpAdapter,
@@ -64,14 +65,16 @@ export class ErpToolsClient {
   buildHandlersMap(adapter: ErpAdapter): Map<string, ToolHandler> {
     const handlers = new Map<string, ToolHandler>();
     for (const tool of this.listTools(adapter)) {
-      handlers.set(tool.name, async (args: Record<string, unknown>) => {
-        const result = await adapter.callTool(
-          tool.name,
-          args,
-          this.callContext,
-        );
-        return toStructuredToolResult(result);
-      });
+      handlers.set(
+        tool.name,
+        async (args: Record<string, unknown>, ctx?: ToolHandlerContext) => {
+          const perCallCtx = ctx?.request?.signal
+            ? { ...this.callContext, signal: ctx.request.signal }
+            : this.callContext;
+          const result = await adapter.callTool(tool.name, args, perCallCtx);
+          return toStructuredToolResult(result);
+        },
+      );
     }
     return handlers;
   }

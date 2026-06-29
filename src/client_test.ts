@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import type { ToolHandlerContext } from "@casys/mcp-server";
 import type {
   ErpAdapter,
   ErpToolCallContext,
@@ -146,4 +147,30 @@ Deno.test("ErpToolsClient — wraps non-object adapter content for structuredCon
       value: "pong",
     },
   });
+});
+
+Deno.test("ErpToolsClient — propage request.signal depuis ToolHandlerContext", async () => {
+  const adapter = new FakeErpAdapter();
+  const client = new ErpToolsClient({
+    tenantId: "tenant_1",
+    actorSubject: "user_1",
+  });
+
+  const handlers = client.buildHandlersMap(adapter);
+  const handler = handlers.get("erpnext.customer_list");
+  if (!handler) {
+    throw new Error("missing handler");
+  }
+
+  const ctrl = new AbortController();
+  const req = new Request("http://x", { signal: ctrl.signal });
+  const ctx: ToolHandlerContext = {
+    toolName: "erpnext.customer_list",
+    request: req,
+  };
+
+  await handler({}, ctx);
+
+  assertEquals(adapter.calls.length, 1);
+  assertEquals(adapter.calls[0].ctx.signal, req.signal);
 });
