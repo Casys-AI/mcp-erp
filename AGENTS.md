@@ -44,7 +44,8 @@ README.md
 
 1. Add a variant to the `ErpConnection` union in `src/domain/connection.ts` and
    to `ERP_TYPES`.
-2. Create `src/platform/erp/<erpType>/client.ts` for raw ERP I/O and
+2. Create `src/platform/erp/<erpType>/client.ts` for raw ERP I/O,
+   `src/platform/erp/<erpType>/tools.ts` for provider tool manifests, and
    `src/platform/erp/<erpType>/adapter.ts` exporting a `create<ErpType>Adapter`
    factory matching `ErpAdapterFactory<"erpType">`.
 3. Register the factory in `src/registry.ts`.

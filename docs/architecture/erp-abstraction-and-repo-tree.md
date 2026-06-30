@@ -20,8 +20,12 @@ The current package has moved past scaffold-only:
 - `src/domain/connection.ts`: explicit tenant-scoped `ErpConnection`.
 - `src/registry.ts`: `buildAdapter(connection)`.
 - `src/platform/erp/erpnext/client.ts`: raw Frappe REST client.
+- `src/platform/erp/erpnext/tools.ts`: ERPNext provider tool manifest split by
+  family.
 - `src/platform/erp/erpnext/adapter.ts`: provider-native Frappe tools.
 - `src/platform/erp/dolibarr/client.ts`: raw Dolibarr REST client.
+- `src/platform/erp/dolibarr/tools.ts`: Dolibarr provider tool manifest split by
+  family.
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
@@ -246,11 +250,13 @@ src/
     erp/
       erpnext/
         client.ts
+        tools.ts
         adapter.ts
         adapter_test.ts
         types.ts
       dolibarr/
         client.ts
+        tools.ts
         adapter.ts
         adapter_test.ts
         types.ts
@@ -275,8 +281,9 @@ or `platform/`.
 
 The target architecture is not complete until these moves are done:
 
-1. Split `platform/erp/*/adapter.ts` by provider tool family so adapter files no
-   longer own every native tool handler in one large module.
+1. Split `platform/erp/*/adapter.ts` handlers by provider tool family so adapter
+   files no longer own every native tool handler in one large module. The static
+   tool manifests have already moved to `tools.ts`.
 2. Add feature slices for payment and stock movement once their normalized
    contracts are proven.
 3. Move read/list handlers from `normalized-adapter.ts` into entity-specific

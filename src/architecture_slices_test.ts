@@ -31,8 +31,16 @@ import { mapSupplierCreateToDolibarr } from "./features/supplier/mappers/dolibar
 import { mapSupplierCreateToErpNext } from "./features/supplier/mappers/erpnext.ts";
 import { createDolibarrAdapter } from "./platform/erp/dolibarr/adapter.ts";
 import { DolibarrRestClient } from "./platform/erp/dolibarr/client.ts";
+import {
+  DOLIBARR_TOOL_GROUPS,
+  DOLIBARR_TOOLS,
+} from "./platform/erp/dolibarr/tools.ts";
 import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 import { FrappeRestClient } from "./platform/erp/erpnext/client.ts";
+import {
+  ERPNEXT_TOOL_GROUPS,
+  ERPNEXT_TOOLS,
+} from "./platform/erp/erpnext/tools.ts";
 import { ErpToolsClient } from "./platform/mcp/client.ts";
 import { ERP_VIEWERS } from "./platform/viewers/viewers.ts";
 
@@ -363,4 +371,39 @@ Deno.test("architecture slices — platform layer exposes ERP and MCP boundaries
   assertEquals(typeof DolibarrRestClient, "function");
   assertEquals(typeof ErpToolsClient, "function");
   assert(ERP_VIEWERS.length > 0);
+});
+
+Deno.test("architecture slices — provider tool manifests are split by family", () => {
+  assertEquals(Object.keys(ERPNEXT_TOOL_GROUPS), [
+    "diagnostics",
+    "businessParties",
+    "catalog",
+    "salesDocuments",
+    "suppliers",
+    "accounting",
+    "inventory",
+    "writes",
+  ]);
+  assertEquals(Object.keys(DOLIBARR_TOOL_GROUPS), [
+    "diagnostics",
+    "businessParties",
+    "catalog",
+    "salesDocuments",
+    "accounting",
+    "inventory",
+    "writes",
+  ]);
+
+  assertEquals(ERPNEXT_TOOLS[0].name, "erpnext.ping");
+  assertEquals(DOLIBARR_TOOLS[0].name, "dolibarr.ping");
+  assert(
+    ERPNEXT_TOOL_GROUPS.salesDocuments.some((tool) =>
+      tool.name === "erpnext.sales_invoice_get"
+    ),
+  );
+  assert(
+    DOLIBARR_TOOL_GROUPS.salesDocuments.some((tool) =>
+      tool.name === "dolibarr.proposal_get"
+    ),
+  );
 });
