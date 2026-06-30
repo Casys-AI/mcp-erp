@@ -134,7 +134,12 @@ Deno.test("erpToolErrorMapper — serializes WriteError to structured JSON", () 
 
 Deno.test("erpToolErrorMapper — serializes NormalizedError to structured JSON", () => {
   const out = erpToolErrorMapper(
-    new NormalizedError("UNKNOWN_ERP_TYPE", "bad", { erpType: "sap" }, "Use erpnext or dolibarr."),
+    new NormalizedError(
+      "UNKNOWN_ERP_TYPE",
+      "bad",
+      { erpType: "sap" },
+      "Use erpnext or dolibarr.",
+    ),
     "erp.customer_create",
   );
   const parsed = JSON.parse(out as string);

@@ -2,8 +2,8 @@ import { assertEquals, assertThrows } from "@std/assert";
 import {
   assertFieldSupported,
   parseWriteMode,
-  WriteError,
   WRITE_CAPABILITIES,
+  WriteError,
 } from "./write.ts";
 
 Deno.test("parseWriteMode — accepts preview and commit", () => {
@@ -34,6 +34,12 @@ Deno.test("assertFieldSupported — unsupported field absent is a no-op", () => 
 });
 
 Deno.test("WRITE_CAPABILITIES — dolibarr supports externalRef, erpnext does not", () => {
-  assertEquals(WRITE_CAPABILITIES.erpnext.unsupportedFields.includes("externalRef"), true);
-  assertEquals(WRITE_CAPABILITIES.dolibarr.unsupportedFields.includes("externalRef"), false);
+  assertEquals(
+    WRITE_CAPABILITIES.erpnext.unsupportedFields.includes("externalRef"),
+    true,
+  );
+  assertEquals(
+    WRITE_CAPABILITIES.dolibarr.unsupportedFields.includes("externalRef"),
+    false,
+  );
 });

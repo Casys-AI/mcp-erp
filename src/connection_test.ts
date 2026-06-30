@@ -13,5 +13,8 @@ Deno.test("ErpConnection — erpnext variant accepts tenant defaults", () => {
     defaultCustomerGroup: "All Customer Groups",
     defaultTerritory: "All Territories",
   };
-  assertEquals(conn.erpType === "erpnext" ? conn.defaultItemGroup : undefined, "All Item Groups");
+  assertEquals(
+    conn.erpType === "erpnext" ? conn.defaultItemGroup : undefined,
+    "All Item Groups",
+  );
 });
