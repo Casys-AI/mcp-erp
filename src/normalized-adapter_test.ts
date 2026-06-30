@@ -8,14 +8,14 @@ import type {
   ErpToolCallContext,
   ErpToolCallResult,
   ErpToolDefinition,
-} from "./adapter.ts";
-import { UnknownToolError } from "./adapter.ts";
-import type { NormalizedPayload } from "./normalized.ts";
-import { NormalizedError } from "./normalized.ts";
+} from "./domain/adapter.ts";
+import { UnknownToolError } from "./domain/adapter.ts";
+import type { NormalizedPayload } from "./domain/normalized.ts";
+import { NormalizedError } from "./domain/normalized.ts";
 import { NormalizedAdapter } from "./normalized-adapter.ts";
-import { WriteError } from "./write.ts";
-import { createErpnextAdapter } from "./adapters/erpnext.ts";
-import { createDolibarrAdapter } from "./adapters/dolibarr.ts";
+import { WriteError } from "./domain/write.ts";
+import { createDolibarrAdapter } from "./platform/erp/dolibarr/adapter.ts";
+import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 
 // ─── fetch-mock helpers (used by write tests) ────────────────────────────────
 

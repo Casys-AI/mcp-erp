@@ -2,17 +2,17 @@
  * Adapter registry — maps `erpType` to a factory.
  *
  * Adding a new ERP = (a) add a variant to `ErpConnection` in
- * `connection.ts`, (b) create the adapter file in `adapters/`,
+ * `domain/connection.ts`, (b) create the adapter file in `platform/erp/`,
  * (c) register the factory below. The discriminated union ensures
  * step (c) is type-checked: forgetting an entry is a compile error.
  *
  * @module @casys/mcp-erp/registry
  */
 
-import type { ErpConnection, ErpType } from "./connection.ts";
-import type { ErpAdapter, ErpAdapterFactory } from "./adapter.ts";
-import { createErpnextAdapter } from "./adapters/erpnext.ts";
-import { createDolibarrAdapter } from "./adapters/dolibarr.ts";
+import type { ErpAdapter, ErpAdapterFactory } from "./domain/adapter.ts";
+import type { ErpConnection, ErpType } from "./domain/connection.ts";
+import { createDolibarrAdapter } from "./platform/erp/dolibarr/adapter.ts";
+import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 
 const REGISTRY: { [E in ErpType]: ErpAdapterFactory<E> } = {
   erpnext: createErpnextAdapter,

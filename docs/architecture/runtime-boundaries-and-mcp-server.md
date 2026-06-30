@@ -121,8 +121,7 @@ Current bindings:
 - `erpnext.ping` and `dolibarr.ping` point to `diagnostics-viewer`;
 - provider-native list tools point to `doclist-viewer`;
 - `erpnext.sales_invoice_get` points to `invoice-viewer`;
-- Dolibarr invoice detail stays native until the payload is mapped to the
-  invoice viewer contract;
+- Dolibarr invoice detail maps to the invoice viewer contract;
 - sales order, quotation, order, and proposal detail tools stay native until a
   shared document-detail viewer lands.
 
@@ -142,16 +141,38 @@ tool `_meta.ui.resourceUri`, following the `mcp-einvoice` viewer pattern.
 server.ts                 # local/dev stdio/http entrypoint
 mod.ts                    # public API exports
 src/
-  adapter.ts              # ErpAdapter contract
-  client.ts               # ErpToolsClient -> @casys/mcp-server
-  error-mapper.ts         # toolErrorMapper for @casys/mcp-server
-  mcp-app.ts              # createErpMcpApp()
-  viewers.ts              # registerErpViewers() + viewer metadata constants
-  connection.ts           # explicit ERP connection union
+  domain/
+    adapter.ts            # ErpAdapter contract
+    connection.ts         # explicit ERP connection union
+    lifecycle.ts          # normalized lifecycle mappers
+    normalized.ts         # NormalizedPayload / NormalizedError
+    write.ts              # write-mode and capability primitives
+  features/
+    customer/             # customer contract + ERPNext/Dolibarr mappers
+    product/              # catalog item contract + mappers
+    supplier/             # supplier contract + mappers
+    invoice/              # sales invoice contract + normalizers
+    sales-order/          # sales order contract + normalizers
+    quotation/            # quotation/proposal contract + normalizers
+  platform/
+    erp/
+      erpnext/client.ts   # raw Frappe REST I/O
+      erpnext/adapter.ts  # Frappe REST provider tools
+      erpnext/adapter_test.ts
+      erpnext/types.ts    # ERPNext native payload shapes
+      dolibarr/client.ts  # raw Dolibarr REST I/O
+      dolibarr/adapter.ts # Dolibarr REST provider tools
+      dolibarr/adapter_test.ts
+      dolibarr/types.ts   # Dolibarr native payload shapes
+    mcp/
+      client.ts           # ErpToolsClient -> @casys/mcp-server
+      error-mapper.ts     # toolErrorMapper for @casys/mcp-server
+      mcp-app.ts          # createErpMcpApp()
+      remote-app.ts       # hosted multi-tenant MCP app factory
+      tool-catalog.ts     # static provider tool catalog
+    viewers/viewers.ts    # registerErpViewers() + viewer metadata constants
   registry.ts             # buildAdapter(connection)
-  adapters/
-    erpnext.ts            # Frappe REST provider tools
-    dolibarr.ts           # Dolibarr REST provider tools
+  normalized-adapter.ts   # cross-ERP normalized tool facade
   ui/dist/                # built MCP Apps viewer HTML bundles
 ```
 
@@ -161,5 +182,7 @@ src/
 2. Keep `createErpMcpApp()` and `ErpToolsClient` aligned with
    `@casys/mcp-server`.
 3. Test stdio and HTTP locally against real ERPNext/Dolibarr instances.
-4. Extend MCP Apps viewers after tool payloads stabilize.
-5. Add normalized tools only after both provider mappings are evidence-backed.
+4. Continue splitting provider adapters by tool family after the raw REST
+   clients.
+5. Extend MCP Apps viewers after tool payloads stabilize.
+6. Add normalized tools only after both provider mappings are evidence-backed.

@@ -1,0 +1,332 @@
+import type { ErpConnection } from "../../../domain/connection.ts";
+
+type DolibarrConnection = Extract<ErpConnection, { erpType: "dolibarr" }>;
+
+export class DolibarrApiError extends Error {
+  override readonly name = "DolibarrApiError";
+
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export class DolibarrRestClient {
+  private readonly baseUrl: string;
+
+  constructor(private readonly connection: DolibarrConnection) {
+    this.baseUrl = connection.apiUrl.replace(/\/+$/, "");
+  }
+
+  async listThirdparties(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    return await this.listResource("thirdparties", options);
+  }
+
+  async getThirdparty(id: number, signal?: AbortSignal): Promise<unknown> {
+    return await this.getResource("thirdparties", id, signal);
+  }
+
+  async listProducts(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    return await this.listResource("products", options);
+  }
+
+  async getProduct(id: number, signal?: AbortSignal): Promise<unknown> {
+    return await this.getResource("products", id, signal);
+  }
+
+  async listInvoices(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    return await this.listResource("invoices", options);
+  }
+
+  async getInvoice(id: number, signal?: AbortSignal): Promise<unknown> {
+    return await this.getResource("invoices", id, signal);
+  }
+
+  async listOrders(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    return await this.listResource("orders", options);
+  }
+
+  async getOrder(id: number, signal?: AbortSignal): Promise<unknown> {
+    return await this.getResource("orders", id, signal);
+  }
+
+  async listProposals(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    return await this.listResource("proposals", options);
+  }
+
+  async getProposal(id: number, signal?: AbortSignal): Promise<unknown> {
+    return await this.getResource("proposals", id, signal);
+  }
+
+  async listPayments(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    const params = new URLSearchParams();
+    params.set("limit", String(options.limit));
+    params.set("page", String(options.page));
+    for (const [key, value] of Object.entries(options.filters ?? {})) {
+      params.set(key, String(value));
+    }
+    const errorPath = "/paiements";
+    const result = await this.request<unknown[]>(
+      "GET",
+      `${errorPath}?${params.toString()}`,
+      errorPath,
+      options.signal,
+    );
+    if (!Array.isArray(result)) {
+      throw new DolibarrApiError(
+        `Dolibarr GET ${errorPath} failed: malformed response: expected array`,
+        200,
+        result,
+      );
+    }
+    return result;
+  }
+
+  async getPayment(id: number, signal?: AbortSignal): Promise<unknown> {
+    const errorPath = `/paiements/${id}`;
+    return await this.request<unknown>("GET", errorPath, errorPath, signal);
+  }
+
+  async listStockmovements(options: {
+    readonly limit: number;
+    readonly page: number;
+    readonly signal?: AbortSignal;
+    readonly filters?: Record<string, string | number>;
+  }): Promise<unknown[]> {
+    const params = new URLSearchParams();
+    params.set("limit", String(options.limit));
+    params.set("page", String(options.page));
+    for (const [key, value] of Object.entries(options.filters ?? {})) {
+      params.set(key, String(value));
+    }
+    const errorPath = "/stockmovements";
+    const result = await this.request<unknown[]>(
+      "GET",
+      `${errorPath}?${params.toString()}`,
+      errorPath,
+      options.signal,
+    );
+    if (!Array.isArray(result)) {
+      throw new DolibarrApiError(
+        `Dolibarr GET ${errorPath} failed: malformed response: expected array`,
+        200,
+        result,
+      );
+    }
+    return result;
+  }
+
+  async createThirdparty(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/thirdparties",
+      "/thirdparties",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async createProduct(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/products",
+      "/products",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async updateThirdparty(
+    id: number,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "PUT",
+      `/thirdparties/${id}`,
+      `/thirdparties/${id}`,
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async updateProduct(
+    id: number,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "PUT",
+      `/products/${id}`,
+      `/products/${id}`,
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  private async listResource(
+    resource: "thirdparties" | "products" | "invoices" | "orders" | "proposals",
+    options: {
+      readonly limit: number;
+      readonly page: number;
+      readonly signal?: AbortSignal;
+      readonly filters?: Record<string, string | number>;
+    },
+  ): Promise<unknown[]> {
+    const params = new URLSearchParams();
+    params.set("limit", String(options.limit));
+    params.set("page", String(options.page));
+    for (const [key, value] of Object.entries(options.filters ?? {})) {
+      params.set(key, String(value));
+    }
+    const errorPath = `/${resource}`;
+    const result = await this.request<unknown[]>(
+      "GET",
+      `${errorPath}?${params.toString()}`,
+      errorPath,
+      options.signal,
+    );
+    if (!Array.isArray(result)) {
+      throw new DolibarrApiError(
+        `Dolibarr GET ${errorPath} failed: malformed response: expected array`,
+        200,
+        result,
+      );
+    }
+    return result;
+  }
+
+  private async getResource(
+    resource: "thirdparties" | "products" | "invoices" | "orders" | "proposals",
+    id: number,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const errorPath = `/${resource}/${id}`;
+    return await this.request<unknown>(
+      "GET",
+      errorPath,
+      errorPath,
+      signal,
+    );
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    errorPath: string,
+    signal?: AbortSignal,
+    body?: string,
+  ): Promise<T> {
+    let response: Response;
+    try {
+      const headers: Record<string, string> = {
+        "accept": "application/json",
+        "dolapikey": this.connection.apiKey,
+      };
+      if (body !== undefined) headers["content-type"] = "application/json";
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body,
+        signal,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new DolibarrApiError(
+        `Dolibarr ${method} ${errorPath} failed: ${message}`,
+        0,
+        null,
+      );
+    }
+
+    const responseBody = await readResponseBody(response);
+    if (!response.ok) {
+      throw new DolibarrApiError(
+        `Dolibarr ${method} ${errorPath} failed: ${
+          extractDolibarrErrorMessage(responseBody, response.statusText)
+        }`,
+        response.status,
+        responseBody,
+      );
+    }
+
+    return responseBody as T;
+  }
+}
+
+async function readResponseBody(response: Response): Promise<unknown> {
+  const rawText = await response.text();
+  if (rawText.length === 0) return null;
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return rawText;
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return rawText;
+  }
+}
+
+function extractDolibarrErrorMessage(
+  body: unknown,
+  fallback: string,
+): string {
+  if (typeof body === "string" && body.length > 0) {
+    return body.slice(0, 200);
+  }
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message.length > 0) {
+      return record.message;
+    }
+    if (record.error && typeof record.error === "object") {
+      const error = record.error as Record<string, unknown>;
+      if (typeof error.message === "string" && error.message.length > 0) {
+        return error.message;
+      }
+    }
+  }
+  return fallback || "HTTP request failed";
+}

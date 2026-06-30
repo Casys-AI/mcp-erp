@@ -11,22 +11,20 @@ scope.
 
 ## Context
 
-- `@casys/mcp-erp` is ERP-agnostic and today **100% read-only** (ERPNext via the
-  Frappe API with its `docstatus` draft/submitted/cancelled lifecycle, Dolibarr
-  via REST).
-- The adapter contract already anticipates mutations: `ErpToolAnnotations` has
-  `readOnlyHint` / `destructiveHint` (`src/adapter.ts:41`), and the HTTP layer
-  is already generic over the method (`request<T>(method, …)` in
-  `src/adapters/erpnext.ts:744`) — it only lacks a request body.
+- `@casys/mcp-erp` is ERP-agnostic. It started read-only; the first normalized
+  write increments are now delivered for ERPNext and Dolibarr.
+- The adapter contract supports mutations through `ErpToolAnnotations`
+  (`readOnlyHint` / `destructiveHint`) in `src/domain/adapter.ts`, and raw HTTP
+  request bodies live in `src/platform/erp/*/client.ts`.
 - The package runs in two deployment shapes:
   - **Local / mono-tenant** (dev stdio/http): one ERP per process.
-  - **Remote / multi-tenant** (`buildMultiTenantHandlersMap`, `src/client.ts`):
-    the ERP is resolved **per request** from the authenticated tenant
-    (`ctx.authInfo.tenantId`); it is _not_ known at boot. The server also
-    supports the **stateless** transport (MCP spec 2026-07-28). The server is
-    **authenticated**, so the tenant identity rides on _every_ request —
-    including `tools/list` — even in stateless mode. `tools/list` can therefore
-    be resolved per tenant; it is not forced to be tenant-blind.
+  - **Remote / multi-tenant** (`buildMultiTenantHandlersMap`,
+    `src/platform/mcp/client.ts`): the ERP is resolved **per request** from the
+    authenticated tenant (`ctx.authInfo.tenantId`); it is _not_ known at boot.
+    The server also supports the **stateless** transport (MCP spec 2026-07-28).
+    The server is **authenticated**, so the tenant identity rides on _every_
+    request — including `tools/list` — even in stateless mode. `tools/list` can
+    therefore be resolved per tenant; it is not forced to be tenant-blind.
 
 Two precedents and one review fed this decision:
 
@@ -74,9 +72,10 @@ Two precedents and one review fed this decision:
    - The same capability manifest drives both the listing filter and the
      call-time check.
    - _Implementation note:_ the current `buildMultiTenantHandlersMap`
-     (`src/client.ts:122`) registers a **static** tool list and only resolves
-     the adapter per tenant **at call time**. To honor the primary mechanism,
-     the **listing** must become tenant-resolved as well, not just the handlers.
+     (`src/platform/mcp/client.ts`) registers a **static** tool list and only
+     resolves the adapter per tenant **at call time**. To honor the primary
+     mechanism, the **listing** must become tenant-resolved as well, not just
+     the handlers.
    - _Cache note:_ because one endpoint serves different lists per token,
      `tools/list` must be cached **per tenant/auth**: `cacheScope: private` +
      short TTL (2026-07-28 `ttlMs`/`cacheScope`), `Vary: Authorization` at the
@@ -161,7 +160,7 @@ agent. Two distinct cases (verified against the ERPNext DocTypes):
   `defaultCustomerGroup` / `defaultTerritory` are **optional** tenant defaults —
   the customer create must **not** be blocked on them.
 
-(Adds fields to `src/connection.ts`.)
+(Adds fields to `src/domain/connection.ts`.)
 
 ## Delivered increments
 
@@ -169,8 +168,8 @@ Both implementation increments are shipped and merged to `main` for ERPNext and
 Dolibarr.
 
 **Increment 1** — `erp.customer_create`, `erp.product_create`,
-`erp.capabilities_describe`. Core write plumbing: `src/write.ts` primitives
-(`WriteMode`, `WriteError`, `WRITE_CAPABILITIES`, `parseWriteMode`,
+`erp.capabilities_describe`. Core write plumbing: `src/domain/write.ts`
+primitives (`WriteMode`, `WriteError`, `WRITE_CAPABILITIES`, `parseWriteMode`,
 `assertFieldSupported`), per-adapter capability manifest, per-tenant filtered
 `tools()`, request body on the HTTP layer, and structured write errors.
 
@@ -309,9 +308,9 @@ stays inside the adapter.
 
 ## References
 
-- `src/adapter.ts` — `ErpAdapter`, `ErpToolDefinition`, annotations.
-- `src/client.ts` — `ErpToolsClient`, `buildMultiTenantHandlersMap` (per-request
-  tenant→adapter resolution).
+- `src/domain/adapter.ts` — `ErpAdapter`, `ErpToolDefinition`, annotations.
+- `src/platform/mcp/client.ts` — `ErpToolsClient`, `buildMultiTenantHandlersMap`
+  (per-request tenant→adapter resolution).
 - `src/normalized-adapter.ts` — Wave 3 normalized read layer;
   `NormalizedPayload` already carries `availableActions` / `lifecycleState` (the
   read-side notion of "what this ERP can do"). Writes extend this contract

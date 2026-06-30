@@ -5,7 +5,10 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { mapDolibarrLifecycle, mapErpNextLifecycle } from "./lifecycle.ts";
+import {
+  mapDolibarrLifecycle,
+  mapErpNextLifecycle,
+} from "./domain/lifecycle.ts";
 
 // ─── ERPNext lifecycle ────────────────────────────────────────────────────────
 

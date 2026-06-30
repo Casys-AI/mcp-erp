@@ -1,7 +1,9 @@
 # ERP abstraction and repository tree
 
-Status: working architecture note, updated after the first ERPNext/Dolibarr
-read-only tools and MCP projection landed.
+Status: working architecture note. The mixed hexagonal / feature-slice target is
+validated as the direction. The repository now uses that shape for the
+transverse core, provider I/O, MCP boundary, viewers, and the first normalized
+feature slices; provider adapters still need a family-level split.
 
 ## Goal
 
@@ -12,17 +14,23 @@ mapping is proven by at least two adapters.
 
 The current package has moved past scaffold-only:
 
-- `src/adapter.ts`: `ErpAdapter`, tool definition, call context/result.
-- `src/client.ts`: `ErpToolsClient`, the `@casys/mcp-server` projection layer
-  that mirrors `mcp-einvoice`'s `EInvoiceToolsClient`.
-- `src/connection.ts`: explicit tenant-scoped `ErpConnection`.
+- `src/domain/adapter.ts`: `ErpAdapter`, tool definition, call context/result.
+- `src/platform/mcp/client.ts`: `ErpToolsClient`, the `@casys/mcp-server`
+  projection layer that mirrors `mcp-einvoice`'s `EInvoiceToolsClient`.
+- `src/domain/connection.ts`: explicit tenant-scoped `ErpConnection`.
 - `src/registry.ts`: `buildAdapter(connection)`.
-- `src/adapters/erpnext.ts`: ping plus native Frappe Customer, Item, and Sales
-  Invoice list/get.
-- `src/adapters/dolibarr.ts`: ping plus native Dolibarr Thirdparty, Product, and
-  Invoice list/get.
-- `src/viewers.ts` + `src/ui/dist`: first MCP Apps viewer registration and built
-  viewer HTML, ported from `mcp-erpnext`.
+- `src/platform/erp/erpnext/client.ts`: raw Frappe REST client.
+- `src/platform/erp/erpnext/adapter.ts`: provider-native Frappe tools.
+- `src/platform/erp/dolibarr/client.ts`: raw Dolibarr REST client.
+- `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
+- `src/features/customer`, `src/features/product`, and `src/features/supplier`:
+  normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
+  business entities.
+- `src/features/invoice`, `src/features/sales-order`, and
+  `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
+  document normalizers.
+- `src/platform/viewers/viewers.ts` + `src/ui/dist`: first MCP Apps viewer
+  registration and built viewer HTML, ported from `mcp-erpnext`.
 - `server.ts`: local/dev stdio or HTTP MCP server using `@casys/mcp-server`.
 
 ## API Families Observed
@@ -136,16 +144,25 @@ interface ErpCapabilities {
 
 Capabilities should be explicit data, not inferred from tool names.
 
-### Normalized tools later
+### Normalized tools after proof
 
-Only add normalized tools when the mapping is backed by real API evidence.
-Initial normalized candidates:
+Only add normalized tools when the mapping is backed by real API evidence. The
+first proven surface now includes:
 
 - `erp.business_party_list`
 - `erp.business_party_get`
 - `erp.catalog_item_list`
 - `erp.catalog_item_get`
 - `erp.sales_invoice_get`
+- `erp.sales_order_get`
+- `erp.quotation_get`
+- `erp.customer_create`
+- `erp.customer_update`
+- `erp.product_create`
+- `erp.product_update`
+- `erp.supplier_create`
+- `erp.supplier_update`
+- `erp.capabilities_describe`
 
 Normalized payloads must include:
 
@@ -156,103 +173,125 @@ Normalized payloads must include:
 - `raw`: native payload.
 - `capabilities`: actions that can be performed on this record.
 
-## Proposed Repository Tree
+## Validated Target Architecture
 
-This is the target tree for the next implementation phase, not an immediate
-large refactor.
+The target architecture is a deliberate blend of hexagonal/clean boundaries and
+vertical feature slices:
+
+- `domain/` is the transverse core: adapter contract, connection union, write
+  policy, lifecycle vocabulary, and normalized payload errors.
+- `features/<entity>/` owns each business entity contract: tool definitions,
+  normalized types, provider-specific mappers, and eventually entity-specific
+  read/write handlers.
+- `platform/` owns raw I/O and host integration: ERP REST clients/adapters, MCP
+  projection, remote-app bootstrap, error mapping, and MCP Apps viewers.
+- Provider-native tools remain first-class. Normalized tools are added only
+  where ERPNext/Dolibarr mapping is proven.
+
+## Current Implemented Slice
+
+This is the state of the repository after the architecture cleanup tranche. It
+is close to the target shell; the remaining work is mainly inside provider
+adapter internals and future feature breadth.
 
 ```text
 mod.ts
 src/
-  adapter.ts
-  client.ts
-  connection.ts
-  registry.ts
-
-  capabilities.ts
-  errors.ts
-  tool-schema.ts
-
-  core/
-    http-client.ts
-    pagination.ts
-    filters.ts
-    identifiers.ts
-
-  canonical/
-    business-party.ts
-    catalog-item.ts
-    sales-invoice.ts
-    sales-order.ts
-    quotation.ts
-    attachment.ts
+  domain/
+    adapter.ts
+    connection.ts
     lifecycle.ts
+    normalized.ts
+    write.ts
 
-  tools/
-    provider-tool.ts
-    normalized-tool.ts
-    result.ts
-
-  adapters/
-    erpnext/
-      adapter.ts
-      client.ts
-      tools/
-        health.ts
-        customers.ts
-        items.ts
-        sales-invoices.ts
-        sales-orders.ts
-        quotations.ts
+  features/
+    customer/
+      customer.contract.ts
+      customer.types.ts
       mappers/
-        business-party.ts
-        catalog-item.ts
-        sales-invoice.ts
-        sales-order.ts
-        quotation.ts
-      fixtures/
-      adapter_test.ts
-
-    dolibarr/
-      adapter.ts
-      client.ts
-      tools/
-        health.ts
-        thirdparties.ts
-        products.ts
-        invoices.ts
-        orders.ts
-        proposals.ts
+        erpnext.ts
+        dolibarr.ts
+    product/
+      product.contract.ts
+      product.types.ts
       mappers/
-        business-party.ts
-        catalog-item.ts
-        sales-invoice.ts
-        sales-order.ts
-        quotation.ts
-      fixtures/
-      adapter_test.ts
+        erpnext.ts
+        dolibarr.ts
+    supplier/
+      supplier.contract.ts
+      supplier.types.ts
+      mappers/
+        erpnext.ts
+        dolibarr.ts
+    invoice/
+      invoice.contract.ts
+      invoice.types.ts
+      mappers/
+        erpnext.ts
+        dolibarr.ts
+    sales-order/
+      sales-order.contract.ts
+      sales-order.types.ts
+      mappers/
+        erpnext.ts
+        dolibarr.ts
+    quotation/
+      quotation.contract.ts
+      quotation.types.ts
+      mappers/
+        erpnext.ts
+        dolibarr.ts
 
-docs/
-  architecture/
-    erp-abstraction-and-repo-tree.md
-    runtime-boundaries-and-mcp-server.md
-    erpnext-dolibarr-api-comparison.md
-  research/
-    odoo.md
-    axelor.md
-    idempiere.md
-    business-central.md
+  platform/
+    erp/
+      erpnext/
+        client.ts
+        adapter.ts
+        adapter_test.ts
+        types.ts
+      dolibarr/
+        client.ts
+        adapter.ts
+        adapter_test.ts
+        types.ts
+    mcp/
+      client.ts
+      error-mapper.ts
+      mcp-app.ts
+      remote-app.ts
+      tool-catalog.ts
+    viewers/
+      viewers.ts
+
+  registry.ts
+  normalized-adapter.ts
 ```
+
+There are no internal compatibility re-export files. `mod.ts` is the external
+package interface; internal code imports directly from `domain/`, `features/`,
+or `platform/`.
+
+## Remaining Migration Work
+
+The target architecture is not complete until these moves are done:
+
+1. Split `platform/erp/*/adapter.ts` by provider tool family so adapter files no
+   longer own every native tool handler in one large module.
+2. Add feature slices for payment and stock movement once their normalized
+   contracts are proven.
+3. Move read/list handlers from `normalized-adapter.ts` into entity-specific
+   feature handlers if the cross-ERP facade grows further.
+4. Keep `deno task check` and `deno task test` green at every tranche.
 
 ## Near-Term Plan
 
 1. Keep v0.1 narrow: ERPNext and Dolibarr only.
 2. Keep `ErpToolsClient` as the only package-level MCP projection into
    `@casys/mcp-server`; adapters must stay wire-agnostic.
-3. Add `capabilities.ts` and common typed error primitives before adding more
-   ERPs.
-4. Move ERPNext/Dolibarr from single adapter files to adapter directories when
-   the first real tools land.
+3. Keep write capabilities and typed errors in the transverse domain layer
+   before adding more ERPs.
+4. Continue splitting provider adapters by tool family after the raw HTTP
+   clients.
 5. Keep `erpnext-dolibarr-api-comparison.md` current with endpoint evidence and
    field/lifecycle mapping before adding normalized tools.
 6. Reuse `mcp-erpnext` Frappe client/tool patterns, but remove env-based

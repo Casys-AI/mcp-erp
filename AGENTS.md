@@ -11,12 +11,11 @@
 ```
 mod.ts             # Public API (re-exports from src/)
 src/
-├── connection.ts  # ErpConnection (discriminated union, per-tenant creds)
-├── adapter.ts     # ErpAdapter contract + tool definition shape
+├── domain/        # Transverse core: connection, adapter, write, lifecycle
+├── features/      # Vertical slices by business entity
+├── platform/      # Raw ERP I/O, MCP projection, viewers
 ├── registry.ts    # buildAdapter(connection) → ErpAdapter
-└── adapters/
-    ├── erpnext.ts # ERPNext adapter (Frappe REST)
-    └── dolibarr.ts # Dolibarr adapter (REST)
+└── normalized-adapter.ts # Cross-ERP normalized tool facade
 deno.json          # Package manifest (@casys/mcp-erp)
 README.md
 ```
@@ -36,18 +35,24 @@ README.md
   errors (`UnknownToolError`, future `ErpApiError`).
 - **JSON Schema draft-07** for `inputSchema`. Keep schemas tight —
   `additionalProperties: false` is the default.
-- **One file per adapter.** Adapter file owns its tool list + handlers.
+- **Provider adapters stay under `src/platform/erp/<erpType>/`.** Keep raw HTTP
+  I/O in `client.ts`, provider payload shapes in `types.ts`, and split large
+  adapters by native tool family when they become too large.
 - **Naming**: tools are `<erpType>.<action>` (e.g. `erpnext.customer_list`).
 
 ## Adding an ERP
 
-1. Add a variant to the `ErpConnection` union in `src/connection.ts` and to
-   `ERP_TYPES`.
-2. Create `src/adapters/<erpType>.ts` exporting a `create<ErpType>Adapter`
+1. Add a variant to the `ErpConnection` union in `src/domain/connection.ts` and
+   to `ERP_TYPES`.
+2. Create `src/platform/erp/<erpType>/client.ts` for raw ERP I/O and
+   `src/platform/erp/<erpType>/adapter.ts` exporting a `create<ErpType>Adapter`
    factory matching `ErpAdapterFactory<"erpType">`.
 3. Register the factory in `src/registry.ts`.
-4. Re-export from `mod.ts` if direct factory access is desired.
-5. Add a smoke test under `src/adapters/<erpType>_test.ts`.
+4. Add or extend feature mappers/contracts under `src/features/<entity>/` only
+   when normalized mapping is proven for the ERP.
+5. Re-export from `mod.ts` if direct factory access is desired.
+6. Add a smoke test colocated with the platform adapter, e.g.
+   `src/platform/erp/<erpType>/adapter_test.ts`.
 
 The discriminated-union typing makes step (3) compile-checked: forgetting the
 registry entry is a TypeScript error.

@@ -14,11 +14,11 @@
  */
 
 // ─── Connection (the single seam between platform and adapter) ─────
-export { ERP_TYPES, isKnownErpType } from "./src/connection.ts";
-export type { ErpConnection, ErpType } from "./src/connection.ts";
+export { ERP_TYPES, isKnownErpType } from "./src/domain/connection.ts";
+export type { ErpConnection, ErpType } from "./src/domain/connection.ts";
 
 // ─── Adapter contract ──────────────────────────────────────────────
-export { UnknownToolError } from "./src/adapter.ts";
+export { UnknownToolError } from "./src/domain/adapter.ts";
 export type {
   ErpAdapter,
   ErpAdapterFactory,
@@ -27,15 +27,18 @@ export type {
   ErpToolCallResult,
   ErpToolDefinition,
   ErpToolMeta,
-} from "./src/adapter.ts";
+} from "./src/domain/adapter.ts";
 
 // ─── Registry & adapters ───────────────────────────────────────────
 export { buildAdapter, REGISTERED_ERP_TYPES } from "./src/registry.ts";
-export { buildMultiTenantHandlersMap, ErpToolsClient } from "./src/client.ts";
-export { erpToolErrorMapper } from "./src/error-mapper.ts";
-export { createErpMcpApp } from "./src/mcp-app.ts";
-export type { CreateErpMcpAppOptions } from "./src/mcp-app.ts";
-export { getErpToolDefinitions } from "./src/tool-catalog.ts";
+export {
+  buildMultiTenantHandlersMap,
+  ErpToolsClient,
+} from "./src/platform/mcp/client.ts";
+export { erpToolErrorMapper } from "./src/platform/mcp/error-mapper.ts";
+export { createErpMcpApp } from "./src/platform/mcp/mcp-app.ts";
+export type { CreateErpMcpAppOptions } from "./src/platform/mcp/mcp-app.ts";
+export { getErpToolDefinitions } from "./src/platform/mcp/tool-catalog.ts";
 
 // ─── Multi-tenant remote boundary ─────────────────────────────────
 export {
@@ -46,8 +49,10 @@ export type {
   ErpAdapterCache,
   ErpConnectionProvider,
 } from "./src/connection-provider.ts";
-export { createErpRemoteApp } from "./src/remote-app.ts";
-export type { CreateErpRemoteAppOptions } from "./src/remote-app.ts";
+export { createErpRemoteApp } from "./src/platform/mcp/remote-app.ts";
+export type {
+  CreateErpRemoteAppOptions,
+} from "./src/platform/mcp/remote-app.ts";
 export {
   ERP_DETAIL_META,
   ERP_DIAGNOSTICS_META,
@@ -55,26 +60,30 @@ export {
   ERP_INVOICE_META,
   ERP_VIEWERS,
   registerErpViewers,
-} from "./src/viewers.ts";
-export type { ErpViewerName } from "./src/viewers.ts";
+} from "./src/platform/viewers/viewers.ts";
+export type { ErpViewerName } from "./src/platform/viewers/viewers.ts";
 
 // Direct exports for callers that want to skip the registry indirection
 // (typed factories, useful for DI in tests).
 export {
   createErpnextAdapter,
   FrappeApiError,
-} from "./src/adapters/erpnext.ts";
+} from "./src/platform/erp/erpnext/adapter.ts";
 export {
   createDolibarrAdapter,
   DolibarrApiError,
-} from "./src/adapters/dolibarr.ts";
+} from "./src/platform/erp/dolibarr/adapter.ts";
 
 // ─── Wave 3 — normalized cross-ERP layer ──────────────────────────────────
 export type {
   ErpLifecycleState,
   NormalizedPayload,
   NormalizedView,
-} from "./src/normalized.ts";
-export { missingNativeIdError, NormalizedError } from "./src/normalized.ts";
+} from "./src/domain/normalized.ts";
+export {
+  assertNativeId,
+  missingNativeIdError,
+  NormalizedError,
+} from "./src/domain/normalized.ts";
 export { NormalizedAdapter } from "./src/normalized-adapter.ts";
 export type { NormalizedAdapterOptions } from "./src/normalized-adapter.ts";

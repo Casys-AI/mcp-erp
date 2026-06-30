@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { assert } from "@std/assert/assert";
-import type { ErpAdapter } from "./adapter.ts";
-import { createErpMcpApp } from "./mcp-app.ts";
+import type { ErpAdapter } from "./domain/adapter.ts";
+import { createErpMcpApp } from "./platform/mcp/mcp-app.ts";
 
 function createAdapter(): ErpAdapter {
   return {

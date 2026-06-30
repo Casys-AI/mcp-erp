@@ -16,8 +16,8 @@
  * @module @casys/mcp-erp/connection-provider
  */
 
-import type { ErpAdapter } from "./adapter.ts";
-import type { ErpConnection } from "./connection.ts";
+import type { ErpAdapter } from "./domain/adapter.ts";
+import type { ErpConnection } from "./domain/connection.ts";
 import { buildAdapter } from "./registry.ts";
 
 // ---------------------------------------------------------------------------
