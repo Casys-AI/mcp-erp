@@ -26,13 +26,13 @@ import {
 } from "../../../domain/adapter.ts";
 import { parseWriteMode, WriteError } from "../../../domain/write.ts";
 import { FrappeRestClient } from "./client.ts";
-import type { FrappeFilter } from "./client.ts";
 import { callErpnextAccountingTool } from "./handlers/accounting.ts";
 import { callErpnextBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callErpnextCatalogTool } from "./handlers/catalog.ts";
 import { callErpnextDocumentTool } from "./handlers/documents.ts";
 import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
-import { BIN_FIELDS, ERPNEXT_TOOLS as TOOLS } from "./tools.ts";
+import { callErpnextInventoryTool } from "./handlers/inventory.ts";
+import { ERPNEXT_TOOLS as TOOLS } from "./tools.ts";
 export { FrappeApiError } from "./client.ts";
 
 type ErpnextConnection = Extract<ErpConnection, { erpType: "erpnext" }>;
@@ -165,44 +165,14 @@ export function createErpnextAdapter(
       });
       if (accounting) return accounting;
 
-      if (name === "erpnext.bin_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(args, "orderBy", "modified desc");
-        const filters: FrappeFilter[] = [];
-        const itemCode = readOptionalStringArgument(args, "itemCode");
-        if (itemCode) {
-          filters.push(["item_code", "=", itemCode]);
-        }
-        const warehouse = readOptionalStringArgument(args, "warehouse");
-        if (warehouse) {
-          filters.push(["warehouse", "=", warehouse]);
-        }
-        const bins = await client.list("Bin", {
-          fields: BIN_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, { signal: _ctx.signal });
-        return {
-          content: {
-            doctype: "Bin",
-            data: bins,
-            _title: "ERPNext Stock (Bin)",
-            bins,
-            count: bins.length,
-            limit,
-            limitStart,
-          },
-          summary: `ERPNext bin_list returned ${bins.length} bin(s)`,
-        };
-      }
+      const inventory = await callErpnextInventoryTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (inventory) return inventory;
+
       if (name === "erpnext.customer_create") {
         const mode = parseWriteMode(args);
         const customerName = readRequiredString(args, "customer_name");
