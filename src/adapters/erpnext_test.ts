@@ -5,12 +5,14 @@ import {
   mapErpNextSalesInvoice,
 } from "./erpnext.ts";
 import { UnknownToolError } from "../adapter.ts";
+import { WriteError } from "../write.ts";
 
 interface CapturedFetch {
   readonly url: URL;
   readonly method: string;
   readonly headers: Headers;
   readonly signal: AbortSignal | null;
+  readonly body?: string;
 }
 
 function mockFetch(
@@ -29,6 +31,7 @@ function mockFetch(
       method: init?.method ?? "GET",
       headers: new Headers(init?.headers),
       signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
     });
 
     return Promise.resolve(
@@ -1307,4 +1310,128 @@ Deno.test("mapErpNextSalesInvoice — isRecord guard skips null/primitive items 
     (result.items as Record<string, unknown>[])[0].item_name,
     "A",
   );
+});
+
+// ── Task 4+5: FrappeRestClient.create + erpnext.customer_create ───────────────
+
+Deno.test("FrappeRestClient.create — POSTs the doc body with content-type", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "CUST-0001", customer_name: "Acme" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const result = await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "commit", customer_name: "Acme" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Customer");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    assertEquals(JSON.parse(captured[0].body as string).customer_name, "Acme");
+    assertEquals((result.content as { nativeId: string }).nativeId, "CUST-0001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_create — preview resolves payload without POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "preview", customer_name: "Acme", customer_type: "Company" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0); // no HTTP on preview
+    const c = r.content as { committed: boolean; resolved: Record<string, unknown> };
+    assertEquals(c.committed, false);
+    assertEquals(c.resolved.customer_name, "Acme");
+    assertEquals(c.resolved.customer_type, "Company");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_create — injects optional customer_group default", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "CUST-1" } } },
+    captured,
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultCustomerGroup: "All Customer Groups",
+    });
+    const r = await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "commit", customer_name: "Acme" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(JSON.parse(captured[0].body as string).customer_group, "All Customer Groups");
+    assertEquals((r.content as { committed: boolean }).committed, true);
+    assertEquals((r.content as { nativeId: string }).nativeId, "CUST-1");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task 6: erpnext.item_create ───────────────────────────────────────────────
+
+Deno.test("erpnext.item_create — missing defaultItemGroup throws MISSING_REQUIRED_CONFIG", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const adapter = createTestAdapter(); // no defaultItemGroup
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.item_create",
+          { mode: "commit", item_name: "Widget", item_code: "W-1", stock_uom: "Nos" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "MISSING_REQUIRED_CONFIG");
+    assertEquals(err.context.field, "item_group");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.item_create — commit sends is_sales_item and defaults", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { data: { name: "ITEM-1" } } }, captured);
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultItemGroup: "All Item Groups",
+      defaultStockUom: "Nos",
+    });
+    await adapter.callTool(
+      "erpnext.item_create",
+      { mode: "commit", item_name: "Widget", item_code: "W-1", is_stock_item: 0 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.item_code, "W-1");
+    assertEquals(body.is_stock_item, 0);
+    assertEquals(body.is_sales_item, 1);
+    assertEquals(body.item_group, "All Item Groups");
+    assertEquals(body.stock_uom, "Nos");
+  } finally {
+    restore();
+  }
 });

@@ -1579,6 +1579,85 @@ export function createErpnextAdapter(
           summary: `ERPNext bin_list returned ${bins.length} bin(s)`,
         };
       }
+      if (name === "erpnext.customer_create") {
+        const mode = parseWriteMode(args);
+        const payload: Record<string, unknown> = {
+          customer_name: readRequiredString(args, "customer_name"),
+          customer_type: readOptionalString(args, "customer_type", "Company"),
+        };
+        for (const f of ["tax_id", "email_id", "mobile_no", "default_currency"]) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        if (connection.defaultCustomerGroup) {
+          payload.customer_group = connection.defaultCustomerGroup;
+        }
+        if (connection.defaultTerritory) {
+          payload.territory = connection.defaultTerritory;
+        }
+        if (mode === "preview") {
+          return {
+            content: { committed: false, doctype: "Customer", resolved: payload },
+            summary: "Preview ERPNext Customer create (not written)",
+          };
+        }
+        const created = await client.create("Customer", payload, {
+          signal: _ctx.signal,
+        });
+        const nativeId = typeof created.name === "string" ? created.name : "";
+        return {
+          content: { committed: true, doctype: "Customer", nativeId, resolved: payload },
+          summary: `Created ERPNext Customer ${nativeId}`,
+        };
+      }
+
+      if (name === "erpnext.item_create") {
+        const mode = parseWriteMode(args);
+        const isStockItem = readOptionalInteger(args, "is_stock_item", 1, {
+          min: 0,
+          max: 1,
+        });
+        const payload: Record<string, unknown> = {
+          item_name: readRequiredString(args, "item_name"),
+          item_code: readRequiredString(args, "item_code"),
+          is_stock_item: isStockItem,
+          is_sales_item: 1,
+        };
+        if (typeof args.standard_rate === "number") {
+          payload.standard_rate = args.standard_rate;
+        }
+        const stockUom = readOptionalStringArgument(args, "stock_uom") ??
+          connection.defaultStockUom;
+        if (!stockUom) {
+          throw new WriteError(
+            "MISSING_REQUIRED_CONFIG",
+            { field: "stock_uom", erpType: "erpnext", tool: name },
+            "Provide uom or set defaultStockUom on the ErpConnection.",
+          );
+        }
+        payload.stock_uom = stockUom;
+        if (!connection.defaultItemGroup) {
+          throw new WriteError(
+            "MISSING_REQUIRED_CONFIG",
+            { field: "item_group", erpType: "erpnext", tool: name },
+            "Set defaultItemGroup on the ErpConnection.",
+          );
+        }
+        payload.item_group = connection.defaultItemGroup;
+        if (mode === "preview") {
+          return {
+            content: { committed: false, doctype: "Item", resolved: payload },
+            summary: "Preview ERPNext Item create (not written)",
+          };
+        }
+        const created = await client.create("Item", payload, { signal: _ctx.signal });
+        const nativeId = typeof created.name === "string" ? created.name : "";
+        return {
+          content: { committed: true, doctype: "Item", nativeId, resolved: payload },
+          summary: `Created ERPNext Item ${nativeId}`,
+        };
+      }
+
       throw new UnknownToolError("erpnext", name);
     },
 
