@@ -808,6 +808,31 @@ class FrappeRestClient {
     }
     return result.data;
   }
+
+  async update<T extends FrappeDoc>(
+    doctype: string,
+    name: string,
+    data: Record<string, unknown>,
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<T> {
+    const resourcePath = `/api/resource/${encodeURIComponent(doctype)}/${
+      encodeURIComponent(name)
+    }`;
+    const result = await this.request<FrappeDocResponse<T>>(
+      "PUT",
+      resourcePath,
+      resourcePath,
+      { ...requestOptions, body: JSON.stringify(data) },
+    );
+    if (!result || !isRecord(result.data)) {
+      throw new FrappeApiError(
+        `ERPNext PUT ${resourcePath} failed: malformed response: data must be an object`,
+        200,
+        result,
+      );
+    }
+    return result.data;
+  }
 }
 
 function readOptionalInteger(
@@ -1687,6 +1712,179 @@ export function createErpnextAdapter(
             resolved: payload,
           },
           summary: `Created ERPNext Item ${nativeId}`,
+        };
+      }
+
+      if (name === "erpnext.customer_update") {
+        const mode = parseWriteMode(args);
+        const nativeId = readRequiredString(args, "name");
+        const payload: Record<string, unknown> = {};
+        for (
+          const f of [
+            "customer_name",
+            "tax_id",
+            "email_id",
+            "mobile_no",
+            "default_currency",
+          ]
+        ) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Customer",
+              resolved: payload,
+            },
+            summary: "Preview ERPNext Customer update (not written)",
+          };
+        }
+        const updated = await client.update("Customer", nativeId, payload, {
+          signal: _ctx.signal,
+        });
+        if (
+          typeof updated.name !== "string" || updated.name.length === 0
+        ) {
+          throw new WriteError(
+            "UPDATE_FAILED",
+            { erpType: "erpnext", tool: name, response: updated },
+            "ERP returned no document name",
+          );
+        }
+        return {
+          content: {
+            committed: true,
+            doctype: "Customer",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated ERPNext Customer ${nativeId}`,
+        };
+      }
+
+      if (name === "erpnext.item_update") {
+        const mode = parseWriteMode(args);
+        const nativeId = readRequiredString(args, "name");
+        const payload: Record<string, unknown> = {};
+        const itemName = readOptionalStringArgument(args, "item_name");
+        if (itemName !== undefined) payload.item_name = itemName;
+        if (typeof args.standard_rate === "number") {
+          payload.standard_rate = args.standard_rate;
+        }
+        const stockUom = readOptionalStringArgument(args, "stock_uom");
+        if (stockUom !== undefined) payload.stock_uom = stockUom;
+        if (mode === "preview") {
+          return {
+            content: { committed: false, doctype: "Item", resolved: payload },
+            summary: "Preview ERPNext Item update (not written)",
+          };
+        }
+        const updated = await client.update("Item", nativeId, payload, {
+          signal: _ctx.signal,
+        });
+        if (
+          typeof updated.name !== "string" || updated.name.length === 0
+        ) {
+          throw new WriteError(
+            "UPDATE_FAILED",
+            { erpType: "erpnext", tool: name, response: updated },
+            "ERP returned no document name",
+          );
+        }
+        return {
+          content: {
+            committed: true,
+            doctype: "Item",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated ERPNext Item ${nativeId}`,
+        };
+      }
+
+      if (name === "erpnext.supplier_create") {
+        const mode = parseWriteMode(args);
+        const payload: Record<string, unknown> = {
+          supplier_name: readRequiredString(args, "supplier_name"),
+          supplier_type: readOptionalString(args, "supplier_type", "Company"),
+        };
+        const taxId = readOptionalStringArgument(args, "tax_id");
+        if (taxId !== undefined) payload.tax_id = taxId;
+        if (connection.defaultSupplierGroup) {
+          payload.supplier_group = connection.defaultSupplierGroup;
+        }
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Supplier",
+              resolved: payload,
+            },
+            summary: "Preview ERPNext Supplier create (not written)",
+          };
+        }
+        const created = await client.create("Supplier", payload, {
+          signal: _ctx.signal,
+        });
+        const nativeId = created.name;
+        if (typeof nativeId !== "string" || nativeId.length === 0) {
+          throw new WriteError(
+            "CREATE_FAILED",
+            { erpType: "erpnext", tool: name, response: created },
+            "ERP returned no document name",
+          );
+        }
+        return {
+          content: {
+            committed: true,
+            doctype: "Supplier",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Created ERPNext Supplier ${nativeId}`,
+        };
+      }
+
+      if (name === "erpnext.supplier_update") {
+        const mode = parseWriteMode(args);
+        const nativeId = readRequiredString(args, "name");
+        const payload: Record<string, unknown> = {};
+        for (const f of ["supplier_name", "supplier_type", "tax_id"]) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Supplier",
+              resolved: payload,
+            },
+            summary: "Preview ERPNext Supplier update (not written)",
+          };
+        }
+        const updated = await client.update("Supplier", nativeId, payload, {
+          signal: _ctx.signal,
+        });
+        if (
+          typeof updated.name !== "string" || updated.name.length === 0
+        ) {
+          throw new WriteError(
+            "UPDATE_FAILED",
+            { erpType: "erpnext", tool: name, response: updated },
+            "ERP returned no document name",
+          );
+        }
+        return {
+          content: {
+            committed: true,
+            doctype: "Supplier",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated ERPNext Supplier ${nativeId}`,
         };
       }
 

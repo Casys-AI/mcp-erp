@@ -1513,3 +1513,377 @@ Deno.test("erpnext.item_create — no name in response throws CREATE_FAILED", as
     restore();
   }
 });
+
+// ── Task B: customer_update ───────────────────────────────────────────────────
+
+Deno.test("erpnext.customer_update — preview returns committed:false without PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_update",
+      {
+        mode: "preview",
+        name: "CUST-001",
+        customer_name: "Acme Updated",
+        tax_id: "FR123",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Customer");
+    assertEquals(c.resolved.customer_name, "Acme Updated");
+    assertEquals(c.resolved.tax_id, "FR123");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_update — commit sends PUT Customer with partial body", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    {
+      status: 200,
+      body: { data: { name: "CUST-001", customer_name: "Acme Updated" } },
+    },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_update",
+      {
+        mode: "commit",
+        name: "CUST-001",
+        customer_name: "Acme Updated",
+        email_id: "contact@acme.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Customer/CUST-001",
+    );
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer_name, "Acme Updated");
+    assertEquals(body.email_id, "contact@acme.com");
+    // name must NOT appear in the body (it's a URL param)
+    assertEquals("name" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "CUST-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_update — missing name in response throws UPDATE_FAILED", async () => {
+  const restore = mockFetch(
+    { status: 200, body: { data: {} } },
+    [],
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.customer_update",
+          { mode: "commit", name: "CUST-001", customer_name: "X" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UPDATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task B: item_update ───────────────────────────────────────────────────────
+
+Deno.test("erpnext.item_update — preview returns committed:false without PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.item_update",
+      {
+        mode: "preview",
+        name: "ITEM-001",
+        item_name: "Widget v2",
+        standard_rate: 99.9,
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Item");
+    assertEquals(c.resolved.item_name, "Widget v2");
+    assertEquals(c.resolved.standard_rate, 99.9);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.item_update — commit sends PUT Item, does NOT send item_code", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "ITEM-001" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.item_update",
+      {
+        mode: "commit",
+        name: "ITEM-001",
+        item_name: "Widget v2",
+        standard_rate: 99.9,
+        stock_uom: "Kg",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/resource/Item/ITEM-001");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.item_name, "Widget v2");
+    assertEquals(body.standard_rate, 99.9);
+    assertEquals(body.stock_uom, "Kg");
+    assertEquals("item_code" in body, false);
+    assertEquals("name" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "ITEM-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.item_update — missing name in response throws UPDATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.item_update",
+          { mode: "commit", name: "ITEM-001", item_name: "X" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UPDATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task B: supplier_create ───────────────────────────────────────────────────
+
+Deno.test("erpnext.supplier_create — preview returns committed:false without POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.supplier_create",
+      { mode: "preview", supplier_name: "SupplierCo", tax_id: "FR456" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Supplier");
+    assertEquals(c.resolved.supplier_name, "SupplierCo");
+    assertEquals(c.resolved.supplier_type, "Company"); // default
+    assertEquals(c.resolved.tax_id, "FR456");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — commit POSTs Supplier body", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    {
+      status: 200,
+      body: { data: { name: "SUPP-0001", supplier_name: "SupplierCo" } },
+    },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.supplier_create",
+      { mode: "commit", supplier_name: "SupplierCo" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.supplier_name, "SupplierCo");
+    assertEquals(body.supplier_type, "Company");
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "SUPP-0001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — injects defaultSupplierGroup if set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-2" } } },
+    captured,
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultSupplierGroup: "All Supplier Groups",
+    });
+    await adapter.callTool(
+      "erpnext.supplier_create",
+      { mode: "commit", supplier_name: "SupplierCo" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.supplier_group, "All Supplier Groups");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.supplier_create",
+          { mode: "commit", supplier_name: "SupplierCo" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task B: supplier_update ───────────────────────────────────────────────────
+
+Deno.test("erpnext.supplier_update — preview returns committed:false without PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.supplier_update",
+      {
+        mode: "preview",
+        name: "SUPP-001",
+        supplier_name: "SupplierCo Updated",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Supplier");
+    assertEquals(c.resolved.supplier_name, "SupplierCo Updated");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_update — commit sends PUT Supplier with partial body", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-001" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.supplier_update",
+      {
+        mode: "commit",
+        name: "SUPP-001",
+        supplier_name: "SupplierCo Updated",
+        supplier_type: "Individual",
+        tax_id: "FR999",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier/SUPP-001");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.supplier_name, "SupplierCo Updated");
+    assertEquals(body.supplier_type, "Individual");
+    assertEquals(body.tax_id, "FR999");
+    assertEquals("name" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "SUPP-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_update — missing name in response throws UPDATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.supplier_update",
+          { mode: "commit", name: "SUPP-001", supplier_name: "X" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UPDATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
