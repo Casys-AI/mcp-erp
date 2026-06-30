@@ -27,6 +27,7 @@ import {
 import { parseWriteMode, WriteError } from "../../../domain/write.ts";
 import { FrappeRestClient, isRecord } from "./client.ts";
 import type { FrappeFilter } from "./client.ts";
+import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
 import {
   BIN_FIELDS,
   CUSTOMER_FIELDS,
@@ -217,22 +218,14 @@ export function createErpnextAdapter(
       args: Record<string, unknown>,
       _ctx: ErpToolCallContext,
     ): Promise<ErpToolCallResult> {
-      if (name === "erpnext.ping") {
-        return await Promise.resolve({
-          content: {
-            ok: true,
-            erpType: "erpnext",
-            apiUrl: connection.apiUrl,
-            sandbox: connection.sandbox,
-            tenantId: _ctx.tenantId,
-            actorSubject: _ctx.actorSubject,
-            toolCount: TOOLS.length,
-            toolNames: TOOLS.map((tool) => tool.name),
-          },
-          summary:
-            `ERPNext connection check — apiUrl=${connection.apiUrl} sandbox=${connection.sandbox}`,
-        });
-      }
+      const diagnostics = await callErpnextDiagnosticsTool({
+        name,
+        connection,
+        ctx: _ctx,
+        tools: TOOLS,
+      });
+      if (diagnostics) return diagnostics;
+
       if (name === "erpnext.customer_list") {
         const limit = readOptionalInteger(args, "limit", 20, {
           min: 1,

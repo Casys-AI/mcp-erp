@@ -35,12 +35,14 @@ import {
   DOLIBARR_TOOL_GROUPS,
   DOLIBARR_TOOLS,
 } from "./platform/erp/dolibarr/tools.ts";
+import { callDolibarrDiagnosticsTool } from "./platform/erp/dolibarr/handlers/diagnostics.ts";
 import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 import { FrappeRestClient } from "./platform/erp/erpnext/client.ts";
 import {
   ERPNEXT_TOOL_GROUPS,
   ERPNEXT_TOOLS,
 } from "./platform/erp/erpnext/tools.ts";
+import { callErpnextDiagnosticsTool } from "./platform/erp/erpnext/handlers/diagnostics.ts";
 import { ErpToolsClient } from "./platform/mcp/client.ts";
 import { ERP_VIEWERS } from "./platform/viewers/viewers.ts";
 
@@ -406,4 +408,9 @@ Deno.test("architecture slices — provider tool manifests are split by family",
       tool.name === "dolibarr.proposal_get"
     ),
   );
+});
+
+Deno.test("architecture slices — provider diagnostics handlers are split by family", () => {
+  assertEquals(typeof callErpnextDiagnosticsTool, "function");
+  assertEquals(typeof callDolibarrDiagnosticsTool, "function");
 });

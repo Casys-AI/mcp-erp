@@ -23,6 +23,7 @@ import {
   DOLIBARR_PROPOSAL_STATUS_CODES,
   DOLIBARR_TOOLS as TOOLS,
 } from "./tools.ts";
+import { callDolibarrDiagnosticsTool } from "./handlers/diagnostics.ts";
 export { DolibarrApiError } from "./client.ts";
 
 type DolibarrConnection = Extract<ErpConnection, { erpType: "dolibarr" }>;
@@ -578,22 +579,15 @@ export function createDolibarrAdapter(
       args: Record<string, unknown>,
       _ctx: ErpToolCallContext,
     ): Promise<ErpToolCallResult> {
-      if (name === "dolibarr.ping") {
-        rejectUnsupportedArguments(name, args, []);
-        return await Promise.resolve({
-          content: {
-            ok: true,
-            erpType: "dolibarr",
-            apiUrl: connection.apiUrl,
-            sandbox: connection.sandbox,
-            tenantId: _ctx.tenantId,
-            actorSubject: _ctx.actorSubject,
-            toolCount: TOOLS.length,
-            toolNames: TOOLS.map((tool) => tool.name),
-          },
-          summary: `Dolibarr connection check — apiUrl=${connection.apiUrl}`,
-        });
-      }
+      const diagnostics = await callDolibarrDiagnosticsTool({
+        name,
+        args,
+        connection,
+        ctx: _ctx,
+        tools: TOOLS,
+      });
+      if (diagnostics) return diagnostics;
+
       if (name === "dolibarr.thirdparty_list") {
         rejectUnsupportedArguments(name, args, [
           "limit",
