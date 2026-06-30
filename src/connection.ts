@@ -30,6 +30,8 @@ export type ErpConnection =
     defaultCustomerGroup?: string;
     /** Optional default Territory injected on Customer create. */
     defaultTerritory?: string;
+    /** Optional default Supplier Group injected on Supplier create. */
+    defaultSupplierGroup?: string;
   }
   | {
     erpType: "dolibarr";

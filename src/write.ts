@@ -51,12 +51,26 @@ export const WRITE_CAPABILITIES: Record<
   { tools: readonly string[]; unsupportedFields: readonly string[] }
 > = {
   erpnext: {
-    tools: ["erp.customer_create", "erp.product_create"],
+    tools: [
+      "erp.customer_create",
+      "erp.product_create",
+      "erp.customer_update",
+      "erp.product_update",
+      "erp.supplier_create",
+      "erp.supplier_update",
+    ],
     // ERPNext `name` is autoname-driven — no reliable external-ref field.
     unsupportedFields: ["externalRef"],
   },
   dolibarr: {
-    tools: ["erp.customer_create", "erp.product_create"],
+    tools: [
+      "erp.customer_create",
+      "erp.product_create",
+      "erp.customer_update",
+      "erp.product_update",
+      "erp.supplier_create",
+      "erp.supplier_update",
+    ],
     unsupportedFields: [],
   },
 };

@@ -18,3 +18,32 @@ Deno.test("ErpConnection — erpnext variant accepts tenant defaults", () => {
     "All Item Groups",
   );
 });
+
+Deno.test("ErpConnection — erpnext variant accepts defaultSupplierGroup", () => {
+  const conn: ErpConnection = {
+    erpType: "erpnext",
+    apiUrl: "https://erp.example.com",
+    apiKey: "k",
+    apiSecret: "s",
+    sandbox: false,
+    defaultSupplierGroup: "All Supplier Groups",
+  };
+  assertEquals(
+    conn.erpType === "erpnext" ? conn.defaultSupplierGroup : undefined,
+    "All Supplier Groups",
+  );
+});
+
+Deno.test("ErpConnection — erpnext variant works without defaultSupplierGroup", () => {
+  const conn: ErpConnection = {
+    erpType: "erpnext",
+    apiUrl: "https://erp.example.com",
+    apiKey: "k",
+    apiSecret: "s",
+    sandbox: false,
+  };
+  assertEquals(
+    conn.erpType === "erpnext" ? conn.defaultSupplierGroup : undefined,
+    undefined,
+  );
+});

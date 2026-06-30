@@ -43,3 +43,24 @@ Deno.test("WRITE_CAPABILITIES — dolibarr supports externalRef, erpnext does no
     false,
   );
 });
+
+Deno.test("WRITE_CAPABILITIES — new CRUD-entity tools present on both ERPs", () => {
+  const newTools = [
+    "erp.customer_update",
+    "erp.product_update",
+    "erp.supplier_create",
+    "erp.supplier_update",
+  ];
+  for (const tool of newTools) {
+    assertEquals(
+      WRITE_CAPABILITIES.erpnext.tools.includes(tool),
+      true,
+      `erpnext missing ${tool}`,
+    );
+    assertEquals(
+      WRITE_CAPABILITIES.dolibarr.tools.includes(tool),
+      true,
+      `dolibarr missing ${tool}`,
+    );
+  }
+});
