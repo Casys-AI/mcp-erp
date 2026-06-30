@@ -24,6 +24,7 @@ import {
   type ErpToolDefinition,
   UnknownToolError,
 } from "../adapter.ts";
+import { parseWriteMode, WriteError } from "../write.ts";
 import {
   ERP_DETAIL_META,
   ERP_DIAGNOSTICS_META,
@@ -58,6 +59,7 @@ interface FrappeListOptions {
 
 interface FrappeRequestOptions {
   readonly signal?: AbortSignal;
+  readonly body?: string;
 }
 
 const CUSTOMER_FIELDS = [
@@ -749,12 +751,17 @@ class FrappeRestClient {
   ): Promise<T> {
     let response: Response;
     try {
+      const headers: Record<string, string> = {
+        "accept": "application/json",
+        "authorization": this.authHeader,
+      };
+      if (options.body !== undefined) {
+        headers["content-type"] = "application/json";
+      }
       response = await fetch(`${this.baseUrl}${path}`, {
         method,
-        headers: {
-          "accept": "application/json",
-          "authorization": this.authHeader,
-        },
+        headers,
+        body: options.body,
         signal: options.signal,
       });
     } catch (error) {
@@ -778,6 +785,28 @@ class FrappeRestClient {
     }
 
     return body as T;
+  }
+
+  async create<T extends FrappeDoc>(
+    doctype: string,
+    data: Record<string, unknown>,
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<T> {
+    const resourcePath = `/api/resource/${encodeURIComponent(doctype)}`;
+    const result = await this.request<FrappeDocResponse<T>>(
+      "POST",
+      resourcePath,
+      resourcePath,
+      { ...requestOptions, body: JSON.stringify(data) },
+    );
+    if (!result || !isRecord(result.data)) {
+      throw new FrappeApiError(
+        `ERPNext POST ${resourcePath} failed: malformed response: data must be an object`,
+        200,
+        result,
+      );
+    }
+    return result.data;
   }
 }
 
