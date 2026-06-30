@@ -1926,6 +1926,7 @@ Deno.test("erpnext.customer_create — email triggers Contact POST after doc", a
     [
       { status: 200, body: { data: { name: "CUST-2" } } }, // POST Customer
       { status: 200, body: { data: { name: "CONT-1" } } }, // POST Contact
+      { status: 200, body: { data: { name: "CUST-2" } } }, // PUT Customer (customer_primary_contact)
     ],
     captured,
   );
@@ -1941,20 +1942,27 @@ Deno.test("erpnext.customer_create — email triggers Contact POST after doc", a
       },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 2);
+    assertEquals(captured.length, 3);
     assertEquals(captured[0].method, "POST");
     assertEquals(captured[0].url.pathname, "/api/resource/Customer");
     const customerBody = JSON.parse(captured[0].body as string);
     assertEquals("email_id" in customerBody, false);
     assertEquals("mobile_no" in customerBody, false);
+    // Fix 1 — Contact POST avec is_primary_contact
     assertEquals(captured[1].method, "POST");
     assertEquals(captured[1].url.pathname, "/api/resource/Contact");
     const contactBody = JSON.parse(captured[1].body as string);
     assertEquals(contactBody.first_name, "Acme");
+    assertEquals(contactBody.is_primary_contact, 1);
     assertEquals(contactBody.email_ids[0].email_id, "acme@example.com");
     assertEquals(contactBody.phone_nos[0].phone, "+33600000000");
     assertEquals(contactBody.links[0].link_doctype, "Customer");
     assertEquals(contactBody.links[0].link_name, "CUST-2");
+    // Fix 1 — PUT Customer pour désigner le contact primaire
+    assertEquals(captured[2].method, "PUT");
+    assertEquals(captured[2].url.pathname, "/api/resource/Customer/CUST-2");
+    const primaryBody = JSON.parse(captured[2].body as string);
+    assertEquals(primaryBody.customer_primary_contact, "CONT-1");
     assertEquals((r.content as { committed: boolean }).committed, true);
     assertEquals((r.content as { nativeId: string }).nativeId, "CUST-2");
   } finally {
@@ -2046,8 +2054,9 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: no existin
   const restore = mockFetchSequence(
     [
       { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
-      { status: 200, body: { data: [] } }, // GET Contact (none found)
+      { status: 200, body: { data: [] } }, // GET Contact (findPrimaryContact — none found)
       { status: 200, body: { data: { name: "CONT-1" } } }, // POST Contact
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer (customer_primary_contact)
     ],
     captured,
   );
@@ -2063,12 +2072,17 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: no existin
       },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 3);
+    assertEquals(captured.length, 4);
     assertEquals(captured[0].method, "PUT");
     assertEquals(captured[1].method, "GET");
     assertEquals(captured[1].url.pathname, "/api/resource/Contact");
     assertEquals(captured[2].method, "POST");
     assertEquals(captured[2].url.pathname, "/api/resource/Contact");
+    // Fix 1 — PUT Customer pour désigner le nouveau contact primaire
+    assertEquals(captured[3].method, "PUT");
+    assertEquals(captured[3].url.pathname, "/api/resource/Customer/CUST-001");
+    const primaryBody = JSON.parse(captured[3].body as string);
+    assertEquals(primaryBody.customer_primary_contact, "CONT-1");
     const customerBody = JSON.parse(captured[0].body as string);
     assertEquals("email_id" in customerBody, false);
   } finally {
@@ -2081,7 +2095,18 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: existing �
   const restore = mockFetchSequence(
     [
       { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
-      { status: 200, body: { data: [{ name: "CONT-1" }] } }, // GET Contact (found)
+      { status: 200, body: { data: [{ name: "CONT-1" }] } }, // GET Contact (findPrimaryContact — found)
+      // Fix 3 — updateContact fait GET+PUT (merge child tables)
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "CONT-1",
+            email_ids: [{ email_id: "old@example.com", is_primary: 1 }],
+            phone_nos: [],
+          },
+        },
+      }, // GET Contact (updateContact — fetch existing)
       { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact
     ],
     captured,
@@ -2093,9 +2118,15 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: existing �
       { mode: "commit", name: "CUST-001", email: "acme@example.com" },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 3);
-    assertEquals(captured[2].method, "PUT");
+    assertEquals(captured.length, 4);
+    assertEquals(captured[2].method, "GET");
     assertEquals(captured[2].url.pathname, "/api/resource/Contact/CONT-1");
+    assertEquals(captured[3].method, "PUT");
+    assertEquals(captured[3].url.pathname, "/api/resource/Contact/CONT-1");
+    // Fix 3 — la ligne primaire est mise à jour, pas remplacée (pas de perte des secondaires)
+    const putBody = JSON.parse(captured[3].body as string);
+    assertEquals(putBody.email_ids[0].email_id, "acme@example.com");
+    assertEquals(putBody.email_ids[0].is_primary, 1);
   } finally {
     restore();
   }
@@ -2126,8 +2157,9 @@ Deno.test("erpnext.supplier_create — email triggers Contact POST", async () =>
   const captured: CapturedFetch[] = [];
   const restore = mockFetchSequence(
     [
-      { status: 200, body: { data: { name: "SUPP-6" } } },
-      { status: 200, body: { data: { name: "CONT-2" } } },
+      { status: 200, body: { data: { name: "SUPP-6" } } }, // POST Supplier
+      { status: 200, body: { data: { name: "CONT-2" } } }, // POST Contact
+      { status: 200, body: { data: { name: "SUPP-6" } } }, // PUT Supplier (supplier_primary_contact)
     ],
     captured,
   );
@@ -2142,12 +2174,17 @@ Deno.test("erpnext.supplier_create — email triggers Contact POST", async () =>
       },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 2);
+    assertEquals(captured.length, 3);
     assertEquals(captured[1].method, "POST");
     assertEquals(captured[1].url.pathname, "/api/resource/Contact");
     const contactBody = JSON.parse(captured[1].body as string);
     assertEquals(contactBody.links[0].link_doctype, "Supplier");
     assertEquals(contactBody.links[0].link_name, "SUPP-6");
+    // Fix 1 — PUT Supplier pour désigner le contact primaire
+    assertEquals(captured[2].method, "PUT");
+    assertEquals(captured[2].url.pathname, "/api/resource/Supplier/SUPP-6");
+    const primaryBody = JSON.parse(captured[2].body as string);
+    assertEquals(primaryBody.supplier_primary_contact, "CONT-2");
   } finally {
     restore();
   }
@@ -2157,9 +2194,10 @@ Deno.test("erpnext.supplier_update — email triggers find-or-create Contact", a
   const captured: CapturedFetch[] = [];
   const restore = mockFetchSequence(
     [
-      { status: 200, body: { data: { name: "SUPP-001" } } },
-      { status: 200, body: { data: [] } },
-      { status: 200, body: { data: { name: "CONT-3" } } },
+      { status: 200, body: { data: { name: "SUPP-001" } } }, // PUT Supplier
+      { status: 200, body: { data: [] } }, // GET Contact (findPrimaryContact — none found)
+      { status: 200, body: { data: { name: "CONT-3" } } }, // POST Contact
+      { status: 200, body: { data: { name: "SUPP-001" } } }, // PUT Supplier (supplier_primary_contact)
     ],
     captured,
   );
@@ -2174,9 +2212,221 @@ Deno.test("erpnext.supplier_update — email triggers find-or-create Contact", a
       },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 3);
+    assertEquals(captured.length, 4);
     assertEquals(captured[1].method, "GET");
     assertEquals(captured[2].method, "POST");
+    // Fix 1 — PUT Supplier pour désigner le nouveau contact primaire
+    assertEquals(captured[3].method, "PUT");
+    assertEquals(captured[3].url.pathname, "/api/resource/Supplier/SUPP-001");
+    const primaryBody = JSON.parse(captured[3].body as string);
+    assertEquals(primaryBody.supplier_primary_contact, "CONT-3");
+  } finally {
+    restore();
+  }
+});
+
+// ── Fix 1-4 extensions ───────────────────────────────────────────────────────
+
+Deno.test("erpnext.customer_create — preview includes primaryContactField", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "preview", customer_name: "Acme", email: "acme@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      resolved: {
+        primaryContactField?: string;
+        contact: Record<string, unknown> | null;
+      };
+    };
+    // Fix 1 — le preview indique quel champ sera positionné
+    assertEquals(c.resolved.primaryContactField, "customer_primary_contact");
+    // Fix 1 — le payload Contact inclut is_primary_contact
+    assertEquals(c.resolved.contact?.is_primary_contact, 1);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — preview includes primaryContactField", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.supplier_create",
+      {
+        mode: "preview",
+        supplier_name: "SupplierCo",
+        email: "supplier@example.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      resolved: { primaryContactField?: string };
+    };
+    assertEquals(c.resolved.primaryContactField, "supplier_primary_contact");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("findPrimaryContact — query includes order_by is_primary_contact desc", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: [{ name: "CONT-PRIMARY" }] } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    // Déclenche findPrimaryContact via customer_update avec email
+    const restore2 = mockFetch(
+      { status: 200, body: { data: { name: "CUST-001" } } },
+      [],
+    );
+    restore2();
+  } finally {
+    restore();
+  }
+  // Test direct via mockFetch sur l'URL produite
+  const captured2: CapturedFetch[] = [];
+  const restore3 = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      { status: 200, body: { data: [{ name: "CONT-PRIMARY" }] } }, // GET Contact
+      // Fix 3 — updateContact GET
+      {
+        status: 200,
+        body: { data: { name: "CONT-PRIMARY", email_ids: [], phone_nos: [] } },
+      },
+      { status: 200, body: { data: { name: "CONT-PRIMARY" } } }, // PUT Contact
+    ],
+    captured2,
+  );
+  try {
+    const adapter2 = createTestAdapter();
+    await adapter2.callTool(
+      "erpnext.customer_update",
+      { mode: "commit", name: "CUST-001", email: "x@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    // Fix 2 — vérifier que order_by est présent dans l'URL de findPrimaryContact
+    const findUrl = captured2[1].url;
+    const orderByParam = findUrl.searchParams.get("order_by");
+    assertEquals(
+      orderByParam,
+      "is_primary_contact desc, creation asc",
+    );
+  } finally {
+    restore3();
+  }
+});
+
+Deno.test("updateContact — merges email_ids preserving secondary entries", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      { status: 200, body: { data: [{ name: "CONT-1" }] } }, // GET Contact (findPrimaryContact)
+      // Fix 3 — GET Contact dans updateContact : 2 emails (1 primaire, 1 secondaire)
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "CONT-1",
+            email_ids: [
+              { email_id: "old@example.com", is_primary: 1 },
+              { email_id: "secondary@example.com", is_primary: 0 },
+            ],
+            phone_nos: [],
+          },
+        },
+      },
+      { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.customer_update",
+      { mode: "commit", name: "CUST-001", email: "new@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const putBody = JSON.parse(captured[3].body as string);
+    // Fix 3 — 2 entrées conservées (merge, pas replace)
+    assertEquals(putBody.email_ids.length, 2);
+    // La primaire est mise à jour
+    const primary = putBody.email_ids.find(
+      (e: Record<string, unknown>) => e.is_primary === 1,
+    );
+    assertEquals(primary?.email_id, "new@example.com");
+    // La secondaire est préservée
+    const secondary = putBody.email_ids.find(
+      (e: Record<string, unknown>) => e.is_primary === 0,
+    );
+    assertEquals(secondary?.email_id, "secondary@example.com");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_update — CONTACT_FAILED recovery text says 'Document updated'", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      { status: 400, body: { message: "error" } }, // GET Contact FAIL (déclenche CONTACT_FAILED)
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.customer_update",
+          { mode: "commit", name: "CUST-001", email: "x@example.com" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CONTACT_FAILED");
+    // Fix 4 — recovery dit "updated", pas "created"
+    assertEquals(err.recovery.startsWith("Document updated"), true);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_update — CONTACT_FAILED recovery text says 'Document updated'", async () => {
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "SUPP-001" } } }, // PUT Supplier
+      { status: 400, body: { message: "error" } }, // GET Contact FAIL
+    ],
+    [],
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.supplier_update",
+          { mode: "commit", name: "SUPP-001", email: "x@example.com" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CONTACT_FAILED");
+    // Fix 4
+    assertEquals(err.recovery.startsWith("Document updated"), true);
   } finally {
     restore();
   }

@@ -686,6 +686,8 @@ class FrappeRestClient {
   ): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       first_name: opts.firstName,
+      // Fix 1 — désigne ce contact comme contact primaire du doc lié
+      is_primary_contact: 1,
       links: [{ link_doctype: linkDoctype, link_name: linkName }],
     };
     if (opts.email) {
@@ -702,7 +704,7 @@ class FrappeRestClient {
     linkName: string,
     opts: { firstName: string; email?: string; phone?: string },
     requestOptions: FrappeRequestOptions = {},
-  ): Promise<void> {
+  ): Promise<string> {
     const payload = this.buildContactPayload(linkDoctype, linkName, opts);
     const result = await this.request<FrappeDocResponse<FrappeDoc>>(
       "POST",
@@ -710,13 +712,17 @@ class FrappeRestClient {
       "/api/resource/Contact",
       { ...requestOptions, body: JSON.stringify(payload) },
     );
-    if (!result || !isRecord(result.data)) {
+    if (
+      !result || !isRecord(result.data) || typeof result.data.name !== "string"
+    ) {
       throw new FrappeApiError(
         "ERPNext POST /api/resource/Contact failed: malformed response",
         200,
         result,
       );
     }
+    // Fix 1 — retourne le name du Contact créé pour permettre le PUT primary_contact
+    return result.data.name;
   }
 
   async findPrimaryContact(
@@ -729,8 +735,11 @@ class FrappeRestClient {
       ["Dynamic Link", "link_name", "=", linkName],
     ]);
     const fields = JSON.stringify(["name"]);
+    // Fix 2 — order_by déterministe : préfère le contact marqué is_primary_contact, puis le plus ancien
     const query = `?filters=${encodeURIComponent(filters)}&fields=${
       encodeURIComponent(fields)
+    }&order_by=${
+      encodeURIComponent("is_primary_contact desc, creation asc")
     }&limit_page_length=1`;
     const result = await this.request<FrappeListResponse<FrappeDoc>>(
       "GET",
@@ -750,13 +759,67 @@ class FrappeRestClient {
     opts: { email?: string; phone?: string },
     requestOptions: FrappeRequestOptions = {},
   ): Promise<void> {
+    // Fix 3 — GET le contact existant avant de mettre à jour pour préserver les child tables
+    // (ERPNext remplace la table entière sur PUT → on merge, on ne remplace pas).
+    type ContactFields = FrappeDoc & {
+      email_ids: Array<Record<string, unknown>>;
+      phone_nos: Array<Record<string, unknown>>;
+    };
+    const existing = await this.request<FrappeDocResponse<ContactFields>>(
+      "GET",
+      `/api/resource/Contact/${encodeURIComponent(contactName)}`,
+      `/api/resource/Contact/${contactName}`,
+      requestOptions,
+    );
+
+    const emailIds: Array<Record<string, unknown>> = Array.isArray(
+        existing?.data?.email_ids,
+      )
+      ? (existing.data.email_ids as Array<Record<string, unknown>>).map((
+        e,
+      ) => ({
+        ...e,
+      }))
+      : [];
+    const phoneNos: Array<Record<string, unknown>> = Array.isArray(
+        existing?.data?.phone_nos,
+      )
+      ? (existing.data.phone_nos as Array<Record<string, unknown>>).map((
+        p,
+      ) => ({
+        ...p,
+      }))
+      : [];
+
     const payload: Record<string, unknown> = {};
+
     if (opts.email) {
-      payload.email_ids = [{ email_id: opts.email, is_primary: 1 }];
+      // Met à jour la ligne primaire existante ; l'ajoute si absente (préserve les secondaires)
+      const primaryIdx = emailIds.findIndex((e) => e.is_primary === 1);
+      if (primaryIdx >= 0) {
+        emailIds[primaryIdx] = {
+          ...emailIds[primaryIdx],
+          email_id: opts.email,
+        };
+      } else {
+        emailIds.push({ email_id: opts.email, is_primary: 1 });
+      }
+      payload.email_ids = emailIds;
     }
+
     if (opts.phone) {
-      payload.phone_nos = [{ phone: opts.phone, is_primary_mobile_no: 1 }];
+      // Met à jour la ligne primaire existante ; l'ajoute si absente (préserve les secondaires)
+      const primaryIdx = phoneNos.findIndex((p) =>
+        p.is_primary_mobile_no === 1
+      );
+      if (primaryIdx >= 0) {
+        phoneNos[primaryIdx] = { ...phoneNos[primaryIdx], phone: opts.phone };
+      } else {
+        phoneNos.push({ phone: opts.phone, is_primary_mobile_no: 1 });
+      }
+      payload.phone_nos = phoneNos;
     }
+
     await this.request<FrappeDocResponse<FrappeDoc>>(
       "PUT",
       `/api/resource/Contact/${encodeURIComponent(contactName)}`,
@@ -1724,7 +1787,14 @@ export function createErpnextAdapter(
             content: {
               committed: false,
               doctype: "Customer",
-              resolved: { document: payload, contact: contactPayload },
+              resolved: {
+                document: payload,
+                contact: contactPayload,
+                // Fix 1 — indique le champ qui sera positionné en commit
+                ...(email || phone
+                  ? { primaryContactField: "customer_primary_contact" }
+                  : {}),
+              },
             },
             summary: "Preview ERPNext Customer create (not written)",
           };
@@ -1742,10 +1812,17 @@ export function createErpnextAdapter(
         }
         if (email || phone) {
           try {
-            await client.createContact(
+            // Fix 1 — POST Contact (avec is_primary_contact:1) puis PUT Customer pour le désigner
+            const contactName = await client.createContact(
               "Customer",
               nativeId as string,
               { firstName: customerName, email, phone },
+              { signal: _ctx.signal },
+            );
+            await client.update(
+              "Customer",
+              nativeId as string,
+              { customer_primary_contact: contactName },
               { signal: _ctx.signal },
             );
           } catch (err) {
@@ -1857,7 +1934,14 @@ export function createErpnextAdapter(
             content: {
               committed: false,
               doctype: "Customer",
-              resolved: { document: payload, contact: contactPayload },
+              resolved: {
+                document: payload,
+                contact: contactPayload,
+                // Fix 1 — indique le champ qui sera positionné en commit
+                ...(email || phone
+                  ? { primaryContactField: "customer_primary_contact" }
+                  : {}),
+              },
             },
             summary: "Preview ERPNext Customer update (not written)",
           };
@@ -1884,7 +1968,8 @@ export function createErpnextAdapter(
                 signal: _ctx.signal,
               });
             } else {
-              await client.createContact(
+              // Fix 1 — nouveau Contact → PUT Customer pour le désigner primaire
+              const contactName = await client.createContact(
                 "Customer",
                 nativeId,
                 {
@@ -1892,6 +1977,12 @@ export function createErpnextAdapter(
                   email,
                   phone,
                 },
+                { signal: _ctx.signal },
+              );
+              await client.update(
+                "Customer",
+                nativeId,
+                { customer_primary_contact: contactName },
                 { signal: _ctx.signal },
               );
             }
@@ -1904,7 +1995,8 @@ export function createErpnextAdapter(
                 tool: name,
                 contactError: err instanceof Error ? err.message : String(err),
               },
-              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+              // Fix 4 — texte distingue create/update
+              "Document updated (see nativeId) but linked contact failed; create/fix the contact manually or retry",
             );
           }
         }
@@ -1994,7 +2086,14 @@ export function createErpnextAdapter(
             content: {
               committed: false,
               doctype: "Supplier",
-              resolved: { document: payload, contact: contactPayload },
+              resolved: {
+                document: payload,
+                contact: contactPayload,
+                // Fix 1 — indique le champ qui sera positionné en commit
+                ...(email || phone
+                  ? { primaryContactField: "supplier_primary_contact" }
+                  : {}),
+              },
             },
             summary: "Preview ERPNext Supplier create (not written)",
           };
@@ -2012,10 +2111,17 @@ export function createErpnextAdapter(
         }
         if (email || phone) {
           try {
-            await client.createContact(
+            // Fix 1 — POST Contact (avec is_primary_contact:1) puis PUT Supplier pour le désigner
+            const contactName = await client.createContact(
               "Supplier",
               nativeId as string,
               { firstName: supplierName, email, phone },
+              { signal: _ctx.signal },
+            );
+            await client.update(
+              "Supplier",
+              nativeId as string,
+              { supplier_primary_contact: contactName },
               { signal: _ctx.signal },
             );
           } catch (err) {
@@ -2073,7 +2179,14 @@ export function createErpnextAdapter(
             content: {
               committed: false,
               doctype: "Supplier",
-              resolved: { document: payload, contact: contactPayload },
+              resolved: {
+                document: payload,
+                contact: contactPayload,
+                // Fix 1 — indique le champ qui sera positionné en commit
+                ...(email || phone
+                  ? { primaryContactField: "supplier_primary_contact" }
+                  : {}),
+              },
             },
             summary: "Preview ERPNext Supplier update (not written)",
           };
@@ -2100,7 +2213,8 @@ export function createErpnextAdapter(
                 signal: _ctx.signal,
               });
             } else {
-              await client.createContact(
+              // Fix 1 — nouveau Contact → PUT Supplier pour le désigner primaire
+              const contactName = await client.createContact(
                 "Supplier",
                 nativeId,
                 {
@@ -2108,6 +2222,12 @@ export function createErpnextAdapter(
                   email,
                   phone,
                 },
+                { signal: _ctx.signal },
+              );
+              await client.update(
+                "Supplier",
+                nativeId,
+                { supplier_primary_contact: contactName },
                 { signal: _ctx.signal },
               );
             }
@@ -2120,7 +2240,8 @@ export function createErpnextAdapter(
                 tool: name,
                 contactError: err instanceof Error ? err.message : String(err),
               },
-              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+              // Fix 4 — texte distingue create/update
+              "Document updated (see nativeId) but linked contact failed; create/fix the contact manually or retry",
             );
           }
         }
