@@ -793,7 +793,7 @@ Deno.test("erp.capabilities_describe — reports dolibarr write capabilities", a
   };
   assertEquals(c.erpType, "dolibarr");
   assertEquals(c.supportedTools.includes("erp.product_create"), true);
-  assertEquals(c.unsupportedFields.length, 0);
+  assertEquals(c.unsupportedFields.includes("uom"), true);
   assertEquals(c.capabilityVersion, "2026-06-30");
 });
 
@@ -949,12 +949,11 @@ Deno.test("erp.customer_update — erpnext maps fields and commits", async () =>
         nativeId: "CUST-001",
         name: "Acme Updated",
         taxId: "FR999",
-        email: "new@acme.com",
-        phone: "+33600000000",
         currency: "USD",
       },
       { tenantId: "t", actorSubject: null },
     );
+    assertEquals(captured.length, 1); // 1 PUT, no Contact (no email/phone)
     assertEquals(captured[0].method, "PUT");
     assertEquals(
       captured[0].url.pathname,
@@ -963,8 +962,6 @@ Deno.test("erp.customer_update — erpnext maps fields and commits", async () =>
     const body = JSON.parse(captured[0].body as string);
     assertEquals(body.customer_name, "Acme Updated");
     assertEquals(body.tax_id, "FR999");
-    assertEquals(body.email_id, "new@acme.com");
-    assertEquals(body.mobile_no, "+33600000000");
     assertEquals(body.default_currency, "USD");
     const c = r.content as {
       committed: boolean;
@@ -1136,7 +1133,6 @@ Deno.test("erp.product_update — dolibarr maps fields and commits", async () =>
         nativeId: "3",
         name: "Widget Pro v2",
         unitPrice: 19.5,
-        uom: "pcs", // ignored on Dolibarr
       },
       { tenantId: "t", actorSubject: null },
     );
@@ -1146,8 +1142,6 @@ Deno.test("erp.product_update — dolibarr maps fields and commits", async () =>
     assertEquals(body.label, "Widget Pro v2");
     assertEquals(body.price, 19.5);
     assertEquals(body.price_base_type, "HT");
-    // uom is NOT forwarded to Dolibarr
-    assertEquals(body.stock_uom, undefined);
     const c = r.content as {
       committed: boolean;
       erpType: string;
@@ -1286,7 +1280,8 @@ Deno.test("erp.supplier_create — dolibarr maps fournisseur:1 and commits", asy
     assertEquals(body.name, "Fournisseur SA");
     assertEquals(body.fournisseur, 1);
     assertEquals(body.tva_intra, "FR222");
-    assertEquals(body.code_client, "EXT-SUPP");
+    assertEquals(body.code_fournisseur, "EXT-SUPP");
+    assertEquals("code_client" in body, false);
     assertEquals(body.email, "supp@example.com");
     assertEquals(body.multicurrency_code, "EUR");
     const c = r.content as {
@@ -1421,7 +1416,8 @@ Deno.test("erp.supplier_update — dolibarr maps fields and commits", async () =
     const body = JSON.parse(captured[0].body as string);
     assertEquals(body.name, "Fournisseur Updated");
     assertEquals(body.tva_intra, "FR444");
-    assertEquals(body.code_client, "EXT-F42");
+    assertEquals(body.code_fournisseur, "EXT-F42");
+    assertEquals("code_client" in body, false);
     assertEquals(body.multicurrency_code, "GBP");
     const c = r.content as {
       committed: boolean;
@@ -1464,6 +1460,157 @@ Deno.test("erp.supplier_update — erpnext preview does not write", async () => 
     assertEquals(captured.length, 0);
     const c = r.content as { committed: boolean };
     assertEquals(c.committed, false);
+  } finally {
+    restore();
+  }
+});
+
+// ─── Fix 3: uom gating on Dolibarr ────────────────────────────────────────────
+
+Deno.test("erp.product_create — uom on dolibarr throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: 0 }, []);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.product_create",
+          {
+            erpType: "dolibarr",
+            mode: "preview",
+            name: "Widget",
+            sku: "W-1",
+            uom: "pcs",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+    assertEquals((err.context as { field: string }).field, "uom");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.product_update — uom on dolibarr throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.product_update",
+          {
+            erpType: "dolibarr",
+            mode: "preview",
+            nativeId: "3",
+            uom: "pcs",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+    assertEquals((err.context as { field: string }).field, "uom");
+  } finally {
+    restore();
+  }
+});
+
+// ─── Fix 3: supplier ERPNext currency + dolibarr code_fournisseur ──────────────
+
+Deno.test("erp.supplier_create — erpnext maps currency to default_currency", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    await a.callTool(
+      "erp.supplier_create",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        name: "Parts Co",
+        currency: "EUR",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.default_currency, "EUR");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_update — erpnext maps currency to default_currency", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    await a.callTool(
+      "erp.supplier_update",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        nativeId: "SUPP-001",
+        currency: "USD",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.default_currency, "USD");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_create — dolibarr externalRef maps to code_fournisseur", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 99 }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    await a.callTool(
+      "erp.supplier_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        name: "Fournisseur SA",
+        externalRef: "EXT-SUPP",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.code_fournisseur, "EXT-SUPP");
+    assertEquals("code_client" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_update — dolibarr externalRef maps to code_fournisseur", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 42 } }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    await a.callTool(
+      "erp.supplier_update",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        nativeId: "42",
+        externalRef: "EXT-F99",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.code_fournisseur, "EXT-F99");
+    assertEquals("code_client" in body, false);
   } finally {
     restore();
   }

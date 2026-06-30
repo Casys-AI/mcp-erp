@@ -524,6 +524,17 @@ function optNonNegativeNumber(
   return value;
 }
 
+/** Gate multiple fields at once — throws UNSUPPORTED_FIELD on first violation. */
+function assertFieldsSupported(
+  erpType: "erpnext" | "dolibarr",
+  args: Record<string, unknown>,
+  fieldNames: readonly string[],
+): void {
+  for (const field of fieldNames) {
+    assertFieldSupported(erpType, field, args);
+  }
+}
+
 // ─── NormalizedAdapter ────────────────────────────────────────────────────────
 
 /** Options for constructing a NormalizedAdapter. */
@@ -856,8 +867,8 @@ export class NormalizedAdapter {
           customer_type: kind === "individual" ? "Individual" : "Company",
         };
         if (taxId !== undefined) nativeArgs.tax_id = taxId;
-        if (email !== undefined) nativeArgs.email_id = email;
-        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
         if (currency !== undefined) nativeArgs.default_currency = currency;
         const r = await nativeAdapter.callTool(
           "erpnext.customer_create",
@@ -903,6 +914,7 @@ export class NormalizedAdapter {
         erpType,
       );
       const uom = optString("uom", args.uom, erpType);
+      assertFieldsSupported(erpType, args, ["uom"]);
       const isService = kind === "service";
 
       if (erpType === "erpnext" && nativeAdapter) {
@@ -959,8 +971,8 @@ export class NormalizedAdapter {
         const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
         if (cname !== undefined) nativeArgs.customer_name = cname;
         if (taxId !== undefined) nativeArgs.tax_id = taxId;
-        if (email !== undefined) nativeArgs.email_id = email;
-        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
         if (currency !== undefined) nativeArgs.default_currency = currency;
         const r = await nativeAdapter.callTool(
           "erpnext.customer_update",
@@ -1004,6 +1016,7 @@ export class NormalizedAdapter {
         erpType,
       );
       const uom = optString("uom", args.uom, erpType);
+      assertFieldsSupported(erpType, args, ["uom"]);
 
       if (erpType === "erpnext" && nativeAdapter) {
         const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
@@ -1054,6 +1067,9 @@ export class NormalizedAdapter {
           supplier_name: sname,
         };
         if (taxId !== undefined) nativeArgs.tax_id = taxId;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
+        if (currency !== undefined) nativeArgs.default_currency = currency;
         const r = await nativeAdapter.callTool(
           "erpnext.supplier_create",
           nativeArgs,
@@ -1068,7 +1084,9 @@ export class NormalizedAdapter {
         const externalRef = args.externalRef as string | undefined;
         const nativeArgs: Record<string, unknown> = { mode, name: sname };
         if (taxId !== undefined) nativeArgs.tva_intra = taxId;
-        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (externalRef !== undefined) {
+          nativeArgs.code_fournisseur = externalRef;
+        }
         if (email !== undefined) nativeArgs.email = email;
         if (phone !== undefined) nativeArgs.phone = phone;
         if (currency !== undefined) nativeArgs.multicurrency_code = currency;
@@ -1099,8 +1117,8 @@ export class NormalizedAdapter {
         const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
         if (sname !== undefined) nativeArgs.supplier_name = sname;
         if (taxId !== undefined) nativeArgs.tax_id = taxId;
-        if (email !== undefined) nativeArgs.email_id = email;
-        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
         if (currency !== undefined) nativeArgs.default_currency = currency;
         const r = await nativeAdapter.callTool(
           "erpnext.supplier_update",
@@ -1118,7 +1136,9 @@ export class NormalizedAdapter {
         const nativeArgs: Record<string, unknown> = { mode, id: numericId };
         if (sname !== undefined) nativeArgs.name = sname;
         if (taxId !== undefined) nativeArgs.tva_intra = taxId;
-        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (externalRef !== undefined) {
+          nativeArgs.code_fournisseur = externalRef;
+        }
         if (email !== undefined) nativeArgs.email = email;
         if (phone !== undefined) nativeArgs.phone = phone;
         if (currency !== undefined) nativeArgs.multicurrency_code = currency;

@@ -1768,7 +1768,7 @@ Deno.test("dolibarr.supplier_create — optional fields forwarded", async () => 
         mode: "commit",
         name: "Supplier Co",
         tva_intra: "FR12345678901",
-        code_client: "SUPP-001",
+        code_fournisseur: "SUPP-001",
         email: "supplier@example.com",
         phone: "+33699999999",
         multicurrency_code: "EUR",
@@ -1777,7 +1777,8 @@ Deno.test("dolibarr.supplier_create — optional fields forwarded", async () => 
     );
     const body = JSON.parse(captured[0].body as string);
     assertEquals(body.tva_intra, "FR12345678901");
-    assertEquals(body.code_client, "SUPP-001");
+    assertEquals(body.code_fournisseur, "SUPP-001");
+    assertEquals("code_client" in body, false);
     assertEquals(body.email, "supplier@example.com");
     assertEquals(body.phone, "+33699999999");
     assertEquals(body.multicurrency_code, "EUR");
@@ -1844,6 +1845,42 @@ Deno.test("dolibarr.supplier_update — commit sends PUT to thirdparties/:id", a
     const c = r.content as { committed: boolean; nativeId: string };
     assertEquals(c.committed, true);
     assertEquals(c.nativeId, "55");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_create — code_fournisseur in payload (not code_client)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 56 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.supplier_create",
+      { mode: "commit", name: "Supplier Co", code_fournisseur: "FOURN-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.code_fournisseur, "FOURN-001");
+    assertEquals("code_client" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_update — code_fournisseur in payload (not code_client)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 55 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.supplier_update",
+      { mode: "commit", id: 55, code_fournisseur: "FOURN-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.code_fournisseur, "FOURN-001");
+    assertEquals("code_client" in body, false);
   } finally {
     restore();
   }

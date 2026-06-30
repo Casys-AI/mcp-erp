@@ -678,6 +678,93 @@ class FrappeRestClient {
     this.authHeader = `token ${connection.apiKey}:${connection.apiSecret}`;
   }
 
+  /** Build Contact child-table payload (used for preview + commit). */
+  buildContactPayload(
+    linkDoctype: "Customer" | "Supplier",
+    linkName: string,
+    opts: { firstName: string; email?: string; phone?: string },
+  ): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      first_name: opts.firstName,
+      links: [{ link_doctype: linkDoctype, link_name: linkName }],
+    };
+    if (opts.email) {
+      payload.email_ids = [{ email_id: opts.email, is_primary: 1 }];
+    }
+    if (opts.phone) {
+      payload.phone_nos = [{ phone: opts.phone, is_primary_mobile_no: 1 }];
+    }
+    return payload;
+  }
+
+  async createContact(
+    linkDoctype: "Customer" | "Supplier",
+    linkName: string,
+    opts: { firstName: string; email?: string; phone?: string },
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<void> {
+    const payload = this.buildContactPayload(linkDoctype, linkName, opts);
+    const result = await this.request<FrappeDocResponse<FrappeDoc>>(
+      "POST",
+      "/api/resource/Contact",
+      "/api/resource/Contact",
+      { ...requestOptions, body: JSON.stringify(payload) },
+    );
+    if (!result || !isRecord(result.data)) {
+      throw new FrappeApiError(
+        "ERPNext POST /api/resource/Contact failed: malformed response",
+        200,
+        result,
+      );
+    }
+  }
+
+  async findPrimaryContact(
+    linkDoctype: "Customer" | "Supplier",
+    linkName: string,
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<string | null> {
+    const filters = JSON.stringify([
+      ["Dynamic Link", "link_doctype", "=", linkDoctype],
+      ["Dynamic Link", "link_name", "=", linkName],
+    ]);
+    const fields = JSON.stringify(["name"]);
+    const query = `?filters=${encodeURIComponent(filters)}&fields=${
+      encodeURIComponent(fields)
+    }&limit_page_length=1`;
+    const result = await this.request<FrappeListResponse<FrappeDoc>>(
+      "GET",
+      `/api/resource/Contact${query}`,
+      "/api/resource/Contact",
+      requestOptions,
+    );
+    if (!result || !Array.isArray(result.data) || result.data.length === 0) {
+      return null;
+    }
+    const first = result.data[0];
+    return typeof first?.name === "string" ? String(first.name) : null;
+  }
+
+  async updateContact(
+    contactName: string,
+    opts: { email?: string; phone?: string },
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<void> {
+    const payload: Record<string, unknown> = {};
+    if (opts.email) {
+      payload.email_ids = [{ email_id: opts.email, is_primary: 1 }];
+    }
+    if (opts.phone) {
+      payload.phone_nos = [{ phone: opts.phone, is_primary_mobile_no: 1 }];
+    }
+    await this.request<FrappeDocResponse<FrappeDoc>>(
+      "PUT",
+      `/api/resource/Contact/${encodeURIComponent(contactName)}`,
+      `/api/resource/Contact/${contactName}`,
+      { ...requestOptions, body: JSON.stringify(payload) },
+    );
+  }
+
   async list<T extends FrappeDoc>(
     doctype: string,
     options: FrappeListOptions = {},
@@ -1606,13 +1693,12 @@ export function createErpnextAdapter(
       }
       if (name === "erpnext.customer_create") {
         const mode = parseWriteMode(args);
+        const customerName = readRequiredString(args, "customer_name");
         const payload: Record<string, unknown> = {
-          customer_name: readRequiredString(args, "customer_name"),
+          customer_name: customerName,
           customer_type: readOptionalString(args, "customer_type", "Company"),
         };
-        for (
-          const f of ["tax_id", "email_id", "mobile_no", "default_currency"]
-        ) {
+        for (const f of ["tax_id", "default_currency"]) {
           const v = readOptionalStringArgument(args, f);
           if (v !== undefined) payload[f] = v;
         }
@@ -1622,12 +1708,23 @@ export function createErpnextAdapter(
         if (connection.defaultTerritory) {
           payload.territory = connection.defaultTerritory;
         }
+        const email = readOptionalStringArgument(args, "email");
+        const phone = readOptionalStringArgument(args, "phone");
+
+        const contactPayload = (email || phone)
+          ? client.buildContactPayload("Customer", "<pending>", {
+            firstName: customerName,
+            email,
+            phone,
+          })
+          : null;
+
         if (mode === "preview") {
           return {
             content: {
               committed: false,
               doctype: "Customer",
-              resolved: payload,
+              resolved: { document: payload, contact: contactPayload },
             },
             summary: "Preview ERPNext Customer create (not written)",
           };
@@ -1642,6 +1739,27 @@ export function createErpnextAdapter(
             { erpType: "erpnext", tool: name, response: created },
             "ERP returned no document name",
           );
+        }
+        if (email || phone) {
+          try {
+            await client.createContact(
+              "Customer",
+              nativeId as string,
+              { firstName: customerName, email, phone },
+              { signal: _ctx.signal },
+            );
+          } catch (err) {
+            throw new WriteError(
+              "CONTACT_FAILED",
+              {
+                nativeId,
+                erpType: "erpnext",
+                tool: name,
+                contactError: err instanceof Error ? err.message : String(err),
+              },
+              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+            );
+          }
         }
         return {
           content: {
@@ -1719,24 +1837,27 @@ export function createErpnextAdapter(
         const mode = parseWriteMode(args);
         const nativeId = readRequiredString(args, "name");
         const payload: Record<string, unknown> = {};
-        for (
-          const f of [
-            "customer_name",
-            "tax_id",
-            "email_id",
-            "mobile_no",
-            "default_currency",
-          ]
-        ) {
+        for (const f of ["customer_name", "tax_id", "default_currency"]) {
           const v = readOptionalStringArgument(args, f);
           if (v !== undefined) payload[f] = v;
         }
+        const email = readOptionalStringArgument(args, "email");
+        const phone = readOptionalStringArgument(args, "phone");
+
+        const contactPayload = (email || phone)
+          ? client.buildContactPayload("Customer", nativeId, {
+            firstName: String(payload.customer_name ?? nativeId),
+            email,
+            phone,
+          })
+          : null;
+
         if (mode === "preview") {
           return {
             content: {
               committed: false,
               doctype: "Customer",
-              resolved: payload,
+              resolved: { document: payload, contact: contactPayload },
             },
             summary: "Preview ERPNext Customer update (not written)",
           };
@@ -1744,14 +1865,48 @@ export function createErpnextAdapter(
         const updated = await client.update("Customer", nativeId, payload, {
           signal: _ctx.signal,
         });
-        if (
-          typeof updated.name !== "string" || updated.name.length === 0
-        ) {
+        if (typeof updated.name !== "string" || updated.name.length === 0) {
           throw new WriteError(
             "UPDATE_FAILED",
             { erpType: "erpnext", tool: name, response: updated },
             "ERP returned no document name",
           );
+        }
+        if (email || phone) {
+          try {
+            const existingContact = await client.findPrimaryContact(
+              "Customer",
+              nativeId,
+              { signal: _ctx.signal },
+            );
+            if (existingContact) {
+              await client.updateContact(existingContact, { email, phone }, {
+                signal: _ctx.signal,
+              });
+            } else {
+              await client.createContact(
+                "Customer",
+                nativeId,
+                {
+                  firstName: String(payload.customer_name ?? nativeId),
+                  email,
+                  phone,
+                },
+                { signal: _ctx.signal },
+              );
+            }
+          } catch (err) {
+            throw new WriteError(
+              "CONTACT_FAILED",
+              {
+                nativeId,
+                erpType: "erpnext",
+                tool: name,
+                contactError: err instanceof Error ? err.message : String(err),
+              },
+              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+            );
+          }
         }
         return {
           content: {
@@ -1806,21 +1961,40 @@ export function createErpnextAdapter(
 
       if (name === "erpnext.supplier_create") {
         const mode = parseWriteMode(args);
+        const supplierName = readRequiredString(args, "supplier_name");
         const payload: Record<string, unknown> = {
-          supplier_name: readRequiredString(args, "supplier_name"),
+          supplier_name: supplierName,
           supplier_type: readOptionalString(args, "supplier_type", "Company"),
         };
         const taxId = readOptionalStringArgument(args, "tax_id");
         if (taxId !== undefined) payload.tax_id = taxId;
+        const defaultCurrency = readOptionalStringArgument(
+          args,
+          "default_currency",
+        );
+        if (defaultCurrency !== undefined) {
+          payload.default_currency = defaultCurrency;
+        }
         if (connection.defaultSupplierGroup) {
           payload.supplier_group = connection.defaultSupplierGroup;
         }
+        const email = readOptionalStringArgument(args, "email");
+        const phone = readOptionalStringArgument(args, "phone");
+
+        const contactPayload = (email || phone)
+          ? client.buildContactPayload("Supplier", "<pending>", {
+            firstName: supplierName,
+            email,
+            phone,
+          })
+          : null;
+
         if (mode === "preview") {
           return {
             content: {
               committed: false,
               doctype: "Supplier",
-              resolved: payload,
+              resolved: { document: payload, contact: contactPayload },
             },
             summary: "Preview ERPNext Supplier create (not written)",
           };
@@ -1835,6 +2009,27 @@ export function createErpnextAdapter(
             { erpType: "erpnext", tool: name, response: created },
             "ERP returned no document name",
           );
+        }
+        if (email || phone) {
+          try {
+            await client.createContact(
+              "Supplier",
+              nativeId as string,
+              { firstName: supplierName, email, phone },
+              { signal: _ctx.signal },
+            );
+          } catch (err) {
+            throw new WriteError(
+              "CONTACT_FAILED",
+              {
+                nativeId,
+                erpType: "erpnext",
+                tool: name,
+                contactError: err instanceof Error ? err.message : String(err),
+              },
+              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+            );
+          }
         }
         return {
           content: {
@@ -1851,16 +2046,34 @@ export function createErpnextAdapter(
         const mode = parseWriteMode(args);
         const nativeId = readRequiredString(args, "name");
         const payload: Record<string, unknown> = {};
-        for (const f of ["supplier_name", "supplier_type", "tax_id"]) {
+        for (
+          const f of [
+            "supplier_name",
+            "supplier_type",
+            "tax_id",
+            "default_currency",
+          ]
+        ) {
           const v = readOptionalStringArgument(args, f);
           if (v !== undefined) payload[f] = v;
         }
+        const email = readOptionalStringArgument(args, "email");
+        const phone = readOptionalStringArgument(args, "phone");
+
+        const contactPayload = (email || phone)
+          ? client.buildContactPayload("Supplier", nativeId, {
+            firstName: String(payload.supplier_name ?? nativeId),
+            email,
+            phone,
+          })
+          : null;
+
         if (mode === "preview") {
           return {
             content: {
               committed: false,
               doctype: "Supplier",
-              resolved: payload,
+              resolved: { document: payload, contact: contactPayload },
             },
             summary: "Preview ERPNext Supplier update (not written)",
           };
@@ -1868,14 +2081,48 @@ export function createErpnextAdapter(
         const updated = await client.update("Supplier", nativeId, payload, {
           signal: _ctx.signal,
         });
-        if (
-          typeof updated.name !== "string" || updated.name.length === 0
-        ) {
+        if (typeof updated.name !== "string" || updated.name.length === 0) {
           throw new WriteError(
             "UPDATE_FAILED",
             { erpType: "erpnext", tool: name, response: updated },
             "ERP returned no document name",
           );
+        }
+        if (email || phone) {
+          try {
+            const existingContact = await client.findPrimaryContact(
+              "Supplier",
+              nativeId,
+              { signal: _ctx.signal },
+            );
+            if (existingContact) {
+              await client.updateContact(existingContact, { email, phone }, {
+                signal: _ctx.signal,
+              });
+            } else {
+              await client.createContact(
+                "Supplier",
+                nativeId,
+                {
+                  firstName: String(payload.supplier_name ?? nativeId),
+                  email,
+                  phone,
+                },
+                { signal: _ctx.signal },
+              );
+            }
+          } catch (err) {
+            throw new WriteError(
+              "CONTACT_FAILED",
+              {
+                nativeId,
+                erpType: "erpnext",
+                tool: name,
+                contactError: err instanceof Error ? err.message : String(err),
+              },
+              "Document created (see nativeId) but linked contact failed; create/fix the contact manually or retry",
+            );
+          }
         }
         return {
           content: {

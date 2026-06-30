@@ -49,6 +49,38 @@ function mockFetch(
   };
 }
 
+function mockFetchSequence(
+  responses: ReadonlyArray<{ readonly status: number; readonly body: unknown }>,
+  captured: CapturedFetch[],
+): () => void {
+  const original = globalThis.fetch;
+  let index = 0;
+  globalThis.fetch = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    captured.push({
+      url: new URL(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    const resp = responses[Math.min(index, responses.length - 1)];
+    index++;
+    return Promise.resolve(
+      new Response(JSON.stringify(resp.body), {
+        status: resp.status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
 function createTestAdapter() {
   return createErpnextAdapter({
     erpType: "erpnext",
@@ -1356,11 +1388,11 @@ Deno.test("erpnext.customer_create — preview resolves payload without POST", a
     assertEquals(captured.length, 0); // no HTTP on preview
     const c = r.content as {
       committed: boolean;
-      resolved: Record<string, unknown>;
+      resolved: { document: Record<string, unknown>; contact: null };
     };
     assertEquals(c.committed, false);
-    assertEquals(c.resolved.customer_name, "Acme");
-    assertEquals(c.resolved.customer_type, "Company");
+    assertEquals(c.resolved.document.customer_name, "Acme");
+    assertEquals(c.resolved.document.customer_type, "Company");
   } finally {
     restore();
   }
@@ -1535,12 +1567,12 @@ Deno.test("erpnext.customer_update — preview returns committed:false without P
     const c = r.content as {
       committed: boolean;
       doctype: string;
-      resolved: Record<string, unknown>;
+      resolved: { document: Record<string, unknown>; contact: null };
     };
     assertEquals(c.committed, false);
     assertEquals(c.doctype, "Customer");
-    assertEquals(c.resolved.customer_name, "Acme Updated");
-    assertEquals(c.resolved.tax_id, "FR123");
+    assertEquals(c.resolved.document.customer_name, "Acme Updated");
+    assertEquals(c.resolved.document.tax_id, "FR123");
   } finally {
     restore();
   }
@@ -1563,11 +1595,10 @@ Deno.test("erpnext.customer_update — commit sends PUT Customer with partial bo
         mode: "commit",
         name: "CUST-001",
         customer_name: "Acme Updated",
-        email_id: "contact@acme.com",
       },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(captured.length, 1);
+    assertEquals(captured.length, 1); // 1 PUT only, no Contact (no email)
     assertEquals(captured[0].method, "PUT");
     assertEquals(
       captured[0].url.pathname,
@@ -1576,7 +1607,6 @@ Deno.test("erpnext.customer_update — commit sends PUT Customer with partial bo
     assertEquals(captured[0].headers.get("content-type"), "application/json");
     const body = JSON.parse(captured[0].body as string);
     assertEquals(body.customer_name, "Acme Updated");
-    assertEquals(body.email_id, "contact@acme.com");
     // name must NOT appear in the body (it's a URL param)
     assertEquals("name" in body, false);
     const c = r.content as { committed: boolean; nativeId: string };
@@ -1714,13 +1744,13 @@ Deno.test("erpnext.supplier_create — preview returns committed:false without P
     const c = r.content as {
       committed: boolean;
       doctype: string;
-      resolved: Record<string, unknown>;
+      resolved: { document: Record<string, unknown>; contact: null };
     };
     assertEquals(c.committed, false);
     assertEquals(c.doctype, "Supplier");
-    assertEquals(c.resolved.supplier_name, "SupplierCo");
-    assertEquals(c.resolved.supplier_type, "Company"); // default
-    assertEquals(c.resolved.tax_id, "FR456");
+    assertEquals(c.resolved.document.supplier_name, "SupplierCo");
+    assertEquals(c.resolved.document.supplier_type, "Company"); // default
+    assertEquals(c.resolved.document.tax_id, "FR456");
   } finally {
     restore();
   }
@@ -1823,11 +1853,11 @@ Deno.test("erpnext.supplier_update — preview returns committed:false without P
     const c = r.content as {
       committed: boolean;
       doctype: string;
-      resolved: Record<string, unknown>;
+      resolved: { document: Record<string, unknown>; contact: null };
     };
     assertEquals(c.committed, false);
     assertEquals(c.doctype, "Supplier");
-    assertEquals(c.resolved.supplier_name, "SupplierCo Updated");
+    assertEquals(c.resolved.document.supplier_name, "SupplierCo Updated");
   } finally {
     restore();
   }
@@ -1883,6 +1913,270 @@ Deno.test("erpnext.supplier_update — missing name in response throws UPDATE_FA
     );
     assertEquals(err.code, "UPDATE_FAILED");
     assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+// ── Fix 1: Contact logic ──────────────────────────────────────────────────────
+
+Deno.test("erpnext.customer_create — email triggers Contact POST after doc", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-2" } } }, // POST Customer
+      { status: 200, body: { data: { name: "CONT-1" } } }, // POST Contact
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_create",
+      {
+        mode: "commit",
+        customer_name: "Acme",
+        email: "acme@example.com",
+        phone: "+33600000000",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 2);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Customer");
+    const customerBody = JSON.parse(captured[0].body as string);
+    assertEquals("email_id" in customerBody, false);
+    assertEquals("mobile_no" in customerBody, false);
+    assertEquals(captured[1].method, "POST");
+    assertEquals(captured[1].url.pathname, "/api/resource/Contact");
+    const contactBody = JSON.parse(captured[1].body as string);
+    assertEquals(contactBody.first_name, "Acme");
+    assertEquals(contactBody.email_ids[0].email_id, "acme@example.com");
+    assertEquals(contactBody.phone_nos[0].phone, "+33600000000");
+    assertEquals(contactBody.links[0].link_doctype, "Customer");
+    assertEquals(contactBody.links[0].link_name, "CUST-2");
+    assertEquals((r.content as { committed: boolean }).committed, true);
+    assertEquals((r.content as { nativeId: string }).nativeId, "CUST-2");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_create — no email → no Contact POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "CUST-3" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "commit", customer_name: "Acme" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Customer");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_create — CONTACT_FAILED if Contact POST fails", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-4" } } }, // POST Customer OK
+      { status: 400, body: { message: "validation error" } }, // POST Contact FAIL
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.customer_create",
+          { mode: "commit", customer_name: "Acme", email: "bad@example.com" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CONTACT_FAILED");
+    assertEquals((err.context as { nativeId: string }).nativeId, "CUST-4");
+    assertEquals((err.context as { erpType: string }).erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_create — preview includes document and contact payload, no HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.customer_create",
+      { mode: "preview", customer_name: "Acme", email: "acme@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      resolved: {
+        document: Record<string, unknown>;
+        contact: Record<string, unknown> | null;
+      };
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.resolved.document.customer_name, "Acme");
+    assertEquals(c.resolved.contact !== null, true);
+    assertEquals(
+      (c.resolved.contact as Record<string, unknown>).first_name,
+      "Acme",
+    );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_update — email triggers find-or-create: no existing → POST Contact", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      { status: 200, body: { data: [] } }, // GET Contact (none found)
+      { status: 200, body: { data: { name: "CONT-1" } } }, // POST Contact
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.customer_update",
+      {
+        mode: "commit",
+        name: "CUST-001",
+        customer_name: "Acme",
+        email: "acme@example.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 3);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[1].method, "GET");
+    assertEquals(captured[1].url.pathname, "/api/resource/Contact");
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/resource/Contact");
+    const customerBody = JSON.parse(captured[0].body as string);
+    assertEquals("email_id" in customerBody, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.customer_update — email triggers find-or-create: existing → PUT Contact", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      { status: 200, body: { data: [{ name: "CONT-1" }] } }, // GET Contact (found)
+      { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.customer_update",
+      { mode: "commit", name: "CUST-001", email: "acme@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 3);
+    assertEquals(captured[2].method, "PUT");
+    assertEquals(captured[2].url.pathname, "/api/resource/Contact/CONT-1");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — default_currency in Supplier payload", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-5" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.supplier_create",
+      { mode: "commit", supplier_name: "SupplierCo", default_currency: "EUR" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.default_currency, "EUR");
+    assertEquals("email_id" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_create — email triggers Contact POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "SUPP-6" } } },
+      { status: 200, body: { data: { name: "CONT-2" } } },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.supplier_create",
+      {
+        mode: "commit",
+        supplier_name: "SupplierCo",
+        email: "supplier@example.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 2);
+    assertEquals(captured[1].method, "POST");
+    assertEquals(captured[1].url.pathname, "/api/resource/Contact");
+    const contactBody = JSON.parse(captured[1].body as string);
+    assertEquals(contactBody.links[0].link_doctype, "Supplier");
+    assertEquals(contactBody.links[0].link_name, "SUPP-6");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_update — email triggers find-or-create Contact", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "SUPP-001" } } },
+      { status: 200, body: { data: [] } },
+      { status: 200, body: { data: { name: "CONT-3" } } },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.supplier_update",
+      {
+        mode: "commit",
+        name: "SUPP-001",
+        email: "supplier@example.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 3);
+    assertEquals(captured[1].method, "GET");
+    assertEquals(captured[2].method, "POST");
   } finally {
     restore();
   }

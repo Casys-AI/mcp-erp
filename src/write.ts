@@ -71,7 +71,7 @@ export const WRITE_CAPABILITIES: Record<
       "erp.supplier_create",
       "erp.supplier_update",
     ],
-    unsupportedFields: [],
+    unsupportedFields: ["uom"],
   },
 };
 

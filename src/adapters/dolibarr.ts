@@ -2079,7 +2079,7 @@ export function createDolibarrAdapter(
           "mode",
           "name",
           "tva_intra",
-          "code_client",
+          "code_fournisseur",
           "email",
           "phone",
           "multicurrency_code",
@@ -2095,7 +2095,7 @@ export function createDolibarrAdapter(
         for (
           const f of [
             "tva_intra",
-            "code_client",
+            "code_fournisseur",
             "email",
             "phone",
             "multicurrency_code",
@@ -2133,7 +2133,7 @@ export function createDolibarrAdapter(
           "id",
           "name",
           "tva_intra",
-          "code_client",
+          "code_fournisseur",
           "email",
           "phone",
           "multicurrency_code",
@@ -2145,7 +2145,7 @@ export function createDolibarrAdapter(
           const f of [
             "name",
             "tva_intra",
-            "code_client",
+            "code_fournisseur",
             "email",
             "phone",
             "multicurrency_code",
