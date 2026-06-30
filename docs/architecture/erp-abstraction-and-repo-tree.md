@@ -57,7 +57,9 @@ The current package has moved past scaffold-only:
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
-  business entities.
+  business entities. `src/features/product/product.handler.ts` owns the first
+  extracted normalized feature handler for catalog item reads and product
+  writes.
 - `src/features/invoice`, `src/features/sales-order`, and
   `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
   document normalizers.
@@ -245,6 +247,7 @@ src/
         dolibarr.ts
     product/
       product.contract.ts
+      product.handler.ts
       product.types.ts
       mappers/
         erpnext.ts
@@ -329,8 +332,8 @@ The target architecture is not complete until these moves are done:
    instead of putting new tool branches back into `adapter.ts`.
 2. Add feature slices for payment and stock movement once their normalized
    contracts are proven.
-3. Move read/list handlers from `normalized-adapter.ts` into entity-specific
-   feature handlers if the cross-ERP facade grows further.
+3. Continue moving read/list and write handlers from `normalized-adapter.ts`
+   into entity-specific feature handlers as the cross-ERP facade grows.
 4. Keep `deno task check` and `deno task test` green at every tranche.
 
 ## Near-Term Plan

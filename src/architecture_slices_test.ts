@@ -18,6 +18,7 @@ import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { normalizeDolibarrInvoice } from "./features/invoice/mappers/dolibarr.ts";
 import { normalizeErpNextSalesInvoice } from "./features/invoice/mappers/erpnext.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
+import { callProductTool } from "./features/product/product.handler.ts";
 import { mapProductCreateToDolibarr } from "./features/product/mappers/dolibarr.ts";
 import { mapProductCreateToErpNext } from "./features/product/mappers/erpnext.ts";
 import { QUOTATION_TOOLS } from "./features/quotation/quotation.contract.ts";
@@ -215,6 +216,10 @@ Deno.test("architecture slices — product contract and mappers own catalog item
       },
     },
   );
+});
+
+Deno.test("architecture slices — product feature owns normalized product handler", () => {
+  assertEquals(typeof callProductTool, "function");
 });
 
 Deno.test("architecture slices — supplier contract and mappers own supplier writes", () => {

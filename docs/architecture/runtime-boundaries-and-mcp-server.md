@@ -149,7 +149,7 @@ src/
     write.ts              # write-mode and capability primitives
   features/
     customer/             # customer contract + ERPNext/Dolibarr mappers
-    product/              # catalog item contract + mappers
+    product/              # catalog item contract, mappers, normalized handler
     supplier/             # supplier contract + mappers
     invoice/              # sales invoice contract + normalizers
     sales-order/          # sales order contract + normalizers

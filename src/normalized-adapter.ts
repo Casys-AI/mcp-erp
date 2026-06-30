@@ -63,16 +63,7 @@ import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { normalizeDolibarrInvoice } from "./features/invoice/mappers/dolibarr.ts";
 import { normalizeErpNextSalesInvoice } from "./features/invoice/mappers/erpnext.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
-import {
-  mapProductCreateToDolibarr,
-  mapProductUpdateToDolibarr,
-  normalizeDolibarrProduct,
-} from "./features/product/mappers/dolibarr.ts";
-import {
-  mapProductCreateToErpNext,
-  mapProductUpdateToErpNext,
-  normalizeErpNextItem,
-} from "./features/product/mappers/erpnext.ts";
+import { callProductTool } from "./features/product/product.handler.ts";
 import { QUOTATION_TOOLS } from "./features/quotation/quotation.contract.ts";
 import { normalizeDolibarrProposal } from "./features/quotation/mappers/dolibarr.ts";
 import { normalizeErpNextQuotation } from "./features/quotation/mappers/erpnext.ts";
@@ -344,34 +335,6 @@ function optEnum<T extends string>(
   return value as T;
 }
 
-/** Validate optional non-negative finite number arg. */
-function optNonNegativeNumber(
-  field: string,
-  value: unknown,
-  erpType: string,
-): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a finite number >= 0 when provided.`,
-    );
-  }
-  return value;
-}
-
-/** Gate multiple fields at once — throws UNSUPPORTED_FIELD on first violation. */
-function assertFieldsSupported(
-  erpType: "erpnext" | "dolibarr",
-  args: Record<string, unknown>,
-  fieldNames: readonly string[],
-): void {
-  for (const field of fieldNames) {
-    assertFieldSupported(erpType, field, args);
-  }
-}
-
 // ─── NormalizedAdapter ────────────────────────────────────────────────────────
 
 /** Options for constructing a NormalizedAdapter. */
@@ -531,63 +494,14 @@ export class NormalizedAdapter {
       }
     }
 
-    // ── catalog_item_get ────────────────────────────────────────────────────
-    if (name === "erp.catalog_item_get") {
-      const nativeId = resolveNativeId(args);
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "erpnext.item_get",
-          { name: nativeId },
-          ctx,
-        );
-        return { content: normalizeErpNextItem(extractDoc(r.content, "item")) };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const id = parseDolibarrNumericId(nativeId);
-        const r = await nativeAdapter.callTool(
-          "dolibarr.product_get",
-          { id },
-          ctx,
-        );
-        return {
-          content: normalizeDolibarrProduct(extractDoc(r.content, "product")),
-        };
-      }
-    }
-
-    // ── catalog_item_list ───────────────────────────────────────────────────
-    if (name === "erp.catalog_item_list") {
-      const limit = typeof args.limit === "number" ? args.limit : 20;
-      const page = typeof args.page === "number" ? args.page : 0;
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "erpnext.item_list",
-          { limit, limitStart: page * limit },
-          ctx,
-        );
-        const rawList = extractArray(r.content, "items");
-        const items: NormalizedPayload[] = rawList.map((raw) =>
-          normalizeErpNextItem(raw)
-        );
-        return { content: { items, count: items.length } };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "dolibarr.product_list",
-          { limit, page },
-          ctx,
-        );
-        const rawList = extractArray(r.content, "products");
-        const items: NormalizedPayload[] = rawList.map((raw) =>
-          normalizeDolibarrProduct(raw)
-        );
-        return { content: { items, count: items.length } };
-      }
-    }
+    const product = await callProductTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (product) return product;
 
     // ── sales_invoice_get ───────────────────────────────────────────────────
     if (name === "erp.sales_invoice_get") {
@@ -732,56 +646,6 @@ export class NormalizedAdapter {
       }
     }
 
-    // ── product_create ────────────────────────────────────────────────────────
-    if (name === "erp.product_create") {
-      const mode = parseWriteMode(args);
-      // Validate all args strictly before any native call (AX: fast-fail).
-      const pname = reqString("name", args.name, erpType);
-      const sku = reqString("sku", args.sku, erpType);
-      const kind =
-        optEnum("kind", args.kind, ["product", "service"] as const, erpType) ??
-          "product";
-      const unitPrice = optNonNegativeNumber(
-        "unitPrice",
-        args.unitPrice,
-        erpType,
-      );
-      const uom = optString("uom", args.uom, erpType);
-      assertFieldsSupported(erpType, args, ["uom"]);
-      const productInput = {
-        mode,
-        name: pname,
-        sku,
-        kind,
-        unitPrice,
-        uom,
-      };
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapProductCreateToErpNext(productInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const nativePlan = mapProductCreateToDolibarr(productInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
-
     // ── customer_update ───────────────────────────────────────────────────────
     if (name === "erp.customer_update") {
       const mode = parseWriteMode(args);
@@ -820,55 +684,6 @@ export class NormalizedAdapter {
         const numericId = parseDolibarrNumericId(nativeId);
         const nativePlan = mapCustomerUpdateToDolibarr({
           ...customerInput,
-          nativeId: numericId,
-        });
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
-
-    // ── product_update ────────────────────────────────────────────────────────
-    if (name === "erp.product_update") {
-      const mode = parseWriteMode(args);
-      const nativeId = reqString("nativeId", args.nativeId, erpType);
-      const pname = optString("name", args.name, erpType);
-      const unitPrice = optNonNegativeNumber(
-        "unitPrice",
-        args.unitPrice,
-        erpType,
-      );
-      const uom = optString("uom", args.uom, erpType);
-      assertFieldsSupported(erpType, args, ["uom"]);
-      const productInput = {
-        mode,
-        nativeId,
-        name: pname,
-        unitPrice,
-        uom,
-      };
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapProductUpdateToErpNext(productInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const numericId = parseDolibarrNumericId(nativeId);
-        const nativePlan = mapProductUpdateToDolibarr({
-          ...productInput,
           nativeId: numericId,
         });
         const r = await nativeAdapter.callTool(
