@@ -1548,3 +1548,303 @@ Deno.test("dolibarr.thirdparty_create — individual without defaultIndividualTy
     restore();
   }
 });
+
+// ── Task C: thirdparty_update ─────────────────────────────────────────────────
+
+Deno.test("dolibarr.thirdparty_update — preview does not PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, name: "Acme" } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.thirdparty_update",
+      { mode: "preview", id: 42, name: "Acme Updated" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    assertEquals((r.content as { committed: boolean }).committed, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.thirdparty_update — commit sends PUT and returns input id as nativeId", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, name: "Acme Updated" } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.thirdparty_update",
+      {
+        mode: "commit",
+        id: 42,
+        name: "Acme Updated",
+        email: "acme@example.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties/42");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Acme Updated");
+    assertEquals(body.email, "acme@example.com");
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "42");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.thirdparty_update — optional fields forwarded in payload", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 99 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.thirdparty_update",
+      {
+        mode: "commit",
+        id: 99,
+        tva_intra: "FR12345678901",
+        code_client: "CLI-001",
+        phone: "+33612345678",
+        multicurrency_code: "USD",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.tva_intra, "FR12345678901");
+    assertEquals(body.code_client, "CLI-001");
+    assertEquals(body.phone, "+33612345678");
+    assertEquals(body.multicurrency_code, "USD");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task C: product_update ────────────────────────────────────────────────────
+
+Deno.test("dolibarr.product_update — preview does not PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.product_update",
+      { mode: "preview", id: 10, label: "Widget v2" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    assertEquals((r.content as { committed: boolean }).committed, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_update — commit sends PUT and price adds price_base_type:HT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 10 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.product_update",
+      { mode: "commit", id: 10, label: "Widget v2", price: 19.99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/products/10");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.label, "Widget v2");
+    assertEquals(body.price, 19.99);
+    assertEquals(body.price_base_type, "HT");
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "10");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_update — no price means no price_base_type", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 10 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.product_update",
+      { mode: "commit", id: 10, label: "Widget v2" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals("price_base_type" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_update — optional type field forwarded", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 10 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.product_update",
+      { mode: "commit", id: 10, type: 1 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.type, 1);
+  } finally {
+    restore();
+  }
+});
+
+// ── Task C: supplier_create ───────────────────────────────────────────────────
+
+Deno.test("dolibarr.supplier_create — preview does not POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 55 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.supplier_create",
+      { mode: "preview", name: "Supplier Co" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    assertEquals((r.content as { committed: boolean }).committed, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_create — commit POSTs fournisseur:1 to thirdparties", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 55 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.supplier_create",
+      { mode: "commit", name: "Supplier Co" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Supplier Co");
+    assertEquals(body.fournisseur, 1);
+    // ⚠️ CODEX: confirm whether client:0 should also be sent
+    assertEquals("client" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "55");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_create — optional fields forwarded", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 56 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.supplier_create",
+      {
+        mode: "commit",
+        name: "Supplier Co",
+        tva_intra: "FR12345678901",
+        code_client: "SUPP-001",
+        email: "supplier@example.com",
+        phone: "+33699999999",
+        multicurrency_code: "EUR",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.tva_intra, "FR12345678901");
+    assertEquals(body.code_client, "SUPP-001");
+    assertEquals(body.email, "supplier@example.com");
+    assertEquals(body.phone, "+33699999999");
+    assertEquals(body.multicurrency_code, "EUR");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_create — null response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: null }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.supplier_create",
+          { mode: "commit", name: "Supplier Co" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "dolibarr");
+  } finally {
+    restore();
+  }
+});
+
+// ── Task C: supplier_update ───────────────────────────────────────────────────
+
+Deno.test("dolibarr.supplier_update — preview does not PUT", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.supplier_update",
+      { mode: "preview", id: 55 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    assertEquals((r.content as { committed: boolean }).committed, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.supplier_update — commit sends PUT to thirdparties/:id", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 55 } }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.supplier_update",
+      { mode: "commit", id: 55, name: "Supplier Co Updated" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties/55");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Supplier Co Updated");
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "55");
+  } finally {
+    restore();
+  }
+});
