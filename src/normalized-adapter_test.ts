@@ -2,7 +2,7 @@
  * TDD Red bar — NormalizedAdapter (Wave 3).
  */
 
-import { assertEquals, assertInstanceOf } from "@std/assert";
+import { assertEquals, assertInstanceOf, assertRejects } from "@std/assert";
 import type {
   ErpAdapter,
   ErpToolCallContext,
@@ -13,6 +13,69 @@ import { UnknownToolError } from "./adapter.ts";
 import type { NormalizedPayload } from "./normalized.ts";
 import { NormalizedError } from "./normalized.ts";
 import { NormalizedAdapter } from "./normalized-adapter.ts";
+import { WriteError } from "./write.ts";
+import { createErpnextAdapter } from "./adapters/erpnext.ts";
+import { createDolibarrAdapter } from "./adapters/dolibarr.ts";
+
+// ─── fetch-mock helpers (used by write tests) ────────────────────────────────
+
+interface CapturedFetch {
+  readonly url: URL;
+  readonly method: string;
+  readonly headers: Headers;
+  readonly signal: AbortSignal | null;
+  readonly body?: string;
+}
+
+function mockFetch(
+  response: { readonly status: number; readonly body: unknown },
+  captured: CapturedFetch[],
+): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    captured.push({
+      url: new URL(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    return Promise.resolve(
+      new Response(JSON.stringify(response.body), {
+        status: response.status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+function createErpnextTestAdapter(itemGroup?: string, stockUom?: string) {
+  return createErpnextAdapter({
+    erpType: "erpnext",
+    apiUrl: "https://erp.example.com",
+    apiKey: "k",
+    apiSecret: "s",
+    sandbox: true,
+    ...(itemGroup !== undefined ? { defaultItemGroup: itemGroup } : {}),
+    ...(stockUom !== undefined ? { defaultStockUom: stockUom } : {}),
+  });
+}
+
+function createDolibarrTestAdapter() {
+  return createDolibarrAdapter({
+    erpType: "dolibarr",
+    apiUrl: "https://dolibarr.example.com/api/index.php",
+    apiKey: "dolikey",
+    sandbox: true,
+  });
+}
 
 // ─── Mock adapters ────────────────────────────────────────────────────────────
 
@@ -174,27 +237,43 @@ const adapter = new NormalizedAdapter({
 
 // ─── tools() ─────────────────────────────────────────────────────────────────
 
-Deno.test("NormalizedAdapter.tools — exposes exactly 7 erp.* tools", () => {
+Deno.test("NormalizedAdapter.tools — exposes exactly 10 erp.* tools", () => {
   const tools = adapter.tools();
   const names = tools.map((t) => t.name).sort();
   assertEquals(names, [
     "erp.business_party_get",
     "erp.business_party_list",
+    "erp.capabilities_describe",
     "erp.catalog_item_get",
     "erp.catalog_item_list",
+    "erp.customer_create",
+    "erp.product_create",
     "erp.quotation_get",
     "erp.sales_invoice_get",
     "erp.sales_order_get",
   ]);
 });
 
-Deno.test("NormalizedAdapter.tools — all tools are readOnly", () => {
-  const tools = adapter.tools();
-  for (const tool of tools) {
+Deno.test("NormalizedAdapter.tools — read tools are readOnly", () => {
+  const readTools = adapter.tools().filter((t) =>
+    !t.name.endsWith("_create") && t.name !== "erp.capabilities_describe"
+  );
+  for (const tool of readTools) {
     assertEquals(
       tool.annotations?.readOnlyHint,
       true,
       `${tool.name} should be readOnly`,
+    );
+  }
+});
+
+Deno.test("NormalizedAdapter.tools — write tools are not readOnly", () => {
+  const writeTools = adapter.tools().filter((t) => t.name.endsWith("_create"));
+  for (const tool of writeTools) {
+    assertEquals(
+      tool.annotations?.readOnlyHint === true,
+      false,
+      `${tool.name} should NOT be readOnly`,
     );
   }
 });
@@ -509,4 +588,177 @@ Deno.test("NormalizedAdapter.tools — fresh array on each call", () => {
     second.every((t) => t.name !== "erp.mutated"),
     true,
   );
+});
+
+// ─── Task 9: erp.customer_create ─────────────────────────────────────────────
+
+Deno.test("erp.customer_create — erpnext maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "CUST-9" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.customer_create",
+      { erpType: "erpnext", mode: "commit", name: "Acme", kind: "individual", taxId: "FR123" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer_name, "Acme");
+    assertEquals(body.customer_type, "Individual");
+    assertEquals(body.tax_id, "FR123");
+    const c = r.content as { committed: boolean; erpType: string; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "CUST-9");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_create — externalRef unsupported on erpnext throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.customer_create",
+          { erpType: "erpnext", mode: "preview", name: "Acme", externalRef: "X" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_create — dolibarr maps externalRef to code_client", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 42 }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.customer_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        name: "Acme",
+        externalRef: "EXT-1",
+        taxId: "FR456",
+        email: "a@b.com",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Acme");
+    assertEquals(body.code_client, "EXT-1");
+    assertEquals(body.tva_intra, "FR456");
+    assertEquals(body.email, "a@b.com");
+    assertEquals(body.client, 1);
+    const c = r.content as { committed: boolean; erpType: string; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "42");
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task 10: erp.product_create ─────────────────────────────────────────────
+
+Deno.test("erp.product_create — erpnext maps service to is_stock_item 0", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "ITEM-7" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({
+      erpnext: createErpnextTestAdapter("All Item Groups", "Nos"),
+    });
+    const r = await a.callTool(
+      "erp.product_create",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        name: "Consulting",
+        sku: "SVC-1",
+        kind: "service",
+        unitPrice: 100,
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.item_code, "SVC-1");
+    assertEquals(body.is_stock_item, 0);
+    assertEquals(body.standard_rate, 100);
+    const c = r.content as { nativeId: string; erpType: string };
+    assertEquals(c.nativeId, "ITEM-7");
+    assertEquals(c.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.product_create — dolibarr maps product to type 0", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 8 }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    await a.callTool(
+      "erp.product_create",
+      { erpType: "dolibarr", mode: "commit", name: "Widget", sku: "W-1", kind: "product", unitPrice: 9 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.label, "Widget");
+    assertEquals(body.ref, "W-1");
+    assertEquals(body.type, 0);
+    assertEquals(body.price, 9);
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task 11: erp.capabilities_describe ──────────────────────────────────────
+
+Deno.test("erp.capabilities_describe — reports erpnext write capabilities", async () => {
+  const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+  const r = await a.callTool(
+    "erp.capabilities_describe",
+    { erpType: "erpnext" },
+    { tenantId: "t", actorSubject: null },
+  );
+  const c = r.content as {
+    erpType: string;
+    supportedTools: string[];
+    unsupportedFields: string[];
+  };
+  assertEquals(c.erpType, "erpnext");
+  assertEquals(c.supportedTools.includes("erp.customer_create"), true);
+  assertEquals(c.unsupportedFields.includes("externalRef"), true);
+});
+
+Deno.test("erp.capabilities_describe — reports dolibarr write capabilities", async () => {
+  const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+  const r = await a.callTool(
+    "erp.capabilities_describe",
+    { erpType: "dolibarr" },
+    { tenantId: "t", actorSubject: null },
+  );
+  const c = r.content as {
+    erpType: string;
+    supportedTools: string[];
+    unsupportedFields: string[];
+    capabilityVersion: string;
+  };
+  assertEquals(c.erpType, "dolibarr");
+  assertEquals(c.supportedTools.includes("erp.product_create"), true);
+  assertEquals(c.unsupportedFields.length, 0);
+  assertEquals(c.capabilityVersion, "2026-06-30");
 });

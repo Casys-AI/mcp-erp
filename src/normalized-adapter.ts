@@ -43,6 +43,11 @@ import type {
 import type { NormalizedPayload } from "./normalized.ts";
 import { invalidNativeIdError, NormalizedError } from "./normalized.ts";
 import {
+  assertFieldSupported,
+  parseWriteMode,
+  WRITE_CAPABILITIES,
+} from "./write.ts";
+import {
   normalizeDolibarrInvoice,
   normalizeDolibarrOrder,
   normalizeDolibarrParty,
@@ -188,6 +193,65 @@ const NORMALIZED_TOOLS: readonly ErpToolDefinition[] = [
         nativeId: NATIVE_ID_SCHEMA,
       },
       required: ["erpType", "nativeId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "erp.customer_create",
+    description:
+      "Create a customer (business party) in normalized form. mode 'preview' validates without writing; 'commit' writes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: {
+          type: "string",
+          enum: ["preview", "commit"],
+          description:
+            "Required. 'preview' resolves the payload without writing; 'commit' writes.",
+        },
+        name: { type: "string", minLength: 1 },
+        kind: { type: "string", enum: ["company", "individual"], default: "company" },
+        taxId: { type: "string", minLength: 1 },
+        externalRef: { type: "string", minLength: 1 },
+        email: { type: "string", minLength: 1 },
+        phone: { type: "string", minLength: 1 },
+        currency: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "name"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.product_create",
+    description:
+      "Create a catalog item (product/service) in normalized form. mode 'preview' validates without writing; 'commit' writes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: { type: "string", enum: ["preview", "commit"] },
+        name: { type: "string", minLength: 1 },
+        sku: { type: "string", minLength: 1 },
+        kind: { type: "string", enum: ["product", "service"], default: "product" },
+        unitPrice: { type: "number", minimum: 0 },
+        uom: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "name", "sku"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.capabilities_describe",
+    description:
+      "Describe the write capabilities of the target ERP: supported tools and which normalized fields are unsupported.",
+    inputSchema: {
+      type: "object",
+      properties: { erpType: ERP_TYPE_SCHEMA },
+      required: ["erpType"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true },
@@ -344,6 +408,21 @@ export class NormalizedAdapter {
     const nativeAdapter = erpType === "erpnext"
       ? this.#erpnext
       : this.#dolibarr;
+
+    // ── capabilities_describe ───────────────────────────────────────────────
+    if (name === "erp.capabilities_describe") {
+      const caps = WRITE_CAPABILITIES[erpType];
+      return {
+        content: {
+          erpType,
+          supportedTools: [...caps.tools],
+          supportedFields: [],
+          unsupportedFields: [...caps.unsupportedFields],
+          capabilityVersion: "2026-06-30",
+        },
+        summary: `Capabilities for ${erpType}`,
+      };
+    }
 
     // ── business_party_get ──────────────────────────────────────────────────
     if (name === "erp.business_party_get") {
@@ -565,6 +644,72 @@ export class NormalizedAdapter {
         return {
           content: normalizeDolibarrProposal(extractDoc(r.content, "proposal")),
         };
+      }
+    }
+
+    // ── customer_create ───────────────────────────────────────────────────────
+    if (name === "erp.customer_create") {
+      const mode = parseWriteMode(args);
+      const cname = typeof args.name === "string" ? args.name : "";
+      const kind = args.kind === "individual" ? "individual" : "company";
+      assertFieldSupported(erpType, "externalRef", args);
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = {
+          mode,
+          customer_name: cname,
+          customer_type: kind === "individual" ? "Individual" : "Company",
+        };
+        if (typeof args.taxId === "string") nativeArgs.tax_id = args.taxId;
+        if (typeof args.email === "string") nativeArgs.email_id = args.email;
+        if (typeof args.phone === "string") nativeArgs.mobile_no = args.phone;
+        if (typeof args.currency === "string") nativeArgs.default_currency = args.currency;
+        const r = await nativeAdapter.callTool("erpnext.customer_create", nativeArgs, ctx);
+        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = { mode, name: cname, kind };
+        if (typeof args.taxId === "string") nativeArgs.tva_intra = args.taxId;
+        if (typeof args.externalRef === "string") nativeArgs.code_client = args.externalRef;
+        if (typeof args.email === "string") nativeArgs.email = args.email;
+        if (typeof args.phone === "string") nativeArgs.phone = args.phone;
+        if (typeof args.currency === "string") nativeArgs.multicurrency_code = args.currency;
+        const r = await nativeAdapter.callTool("dolibarr.thirdparty_create", nativeArgs, ctx);
+        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+      }
+    }
+
+    // ── product_create ────────────────────────────────────────────────────────
+    if (name === "erp.product_create") {
+      const mode = parseWriteMode(args);
+      const pname = typeof args.name === "string" ? args.name : "";
+      const sku = typeof args.sku === "string" ? args.sku : "";
+      const isService = args.kind === "service";
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = {
+          mode,
+          item_name: pname,
+          item_code: sku,
+          is_stock_item: isService ? 0 : 1,
+        };
+        if (typeof args.unitPrice === "number") nativeArgs.standard_rate = args.unitPrice;
+        if (typeof args.uom === "string") nativeArgs.stock_uom = args.uom;
+        const r = await nativeAdapter.callTool("erpnext.item_create", nativeArgs, ctx);
+        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = {
+          mode,
+          label: pname,
+          ref: sku,
+          type: isService ? 1 : 0,
+        };
+        if (typeof args.unitPrice === "number") nativeArgs.price = args.unitPrice;
+        const r = await nativeAdapter.callTool("dolibarr.product_create", nativeArgs, ctx);
+        return { content: { ...(r.content as Record<string, unknown>), erpType } };
       }
     }
 
