@@ -1,9 +1,9 @@
 # Write surfaces and capability gating
 
-Status: **architecture decision — design complete 2026-06-30.** Captures the
-agreed model for moving `@casys/mcp-erp` from a read-only tool surface to write
-(mutation) tools, including the concrete MVP tool list. Ready for an
-implementation plan.
+Status: **architecture decision — design complete 2026-06-30; increments 1 and 2
+delivered and merged to `main`.** Captures the agreed model for moving
+`@casys/mcp-erp` from a read-only tool surface to write (mutation) tools,
+including the concrete MVP tool list. Ready for an implementation plan.
 
 This note is the source of truth for _how_ writes are shaped and _what_ the
 first iteration ships. The "Deferred" section lists what is intentionally out of
@@ -163,7 +163,29 @@ agent. Two distinct cases (verified against the ERPNext DocTypes):
 
 (Adds fields to `src/connection.ts`.)
 
-## MVP scope (this iteration)
+## Delivered increments
+
+Both implementation increments are shipped and merged to `main` for ERPNext and
+Dolibarr.
+
+**Increment 1** — `erp.customer_create`, `erp.product_create`,
+`erp.capabilities_describe`. Core write plumbing: `src/write.ts` primitives
+(`WriteMode`, `WriteError`, `WRITE_CAPABILITIES`, `parseWriteMode`,
+`assertFieldSupported`), per-adapter capability manifest, per-tenant filtered
+`tools()`, request body on the HTTP layer, and structured write errors.
+
+**Increment 2** — `erp.customer_update`, `erp.product_update`,
+`erp.supplier_create`, `erp.supplier_update`. Updates take a required `nativeId`
+and optional normalized fields (partial PUT). Supplier maps to ERPNext
+`Supplier` doctype and Dolibarr thirdparty `fournisseur: 1`. Conformance note
+from the Codex review: Dolibarr supplier external-ref is `code_fournisseur` (not
+`code_client`); `uom` is unsupported on Dolibarr and is declared in
+`WRITE_CAPABILITIES.dolibarr.unsupportedFields`.
+
+The original MVP scope tables and field-normalization rationale are preserved
+below for reference.
+
+## MVP scope (reference)
 
 Two write tools, both ERPs, each with the required `mode: "preview" | "commit"`:
 
@@ -217,17 +239,73 @@ fact-checked against the live ERPNext DocTypes and Dolibarr API classes (Codex
 VRAI/FAUX/NUANCE pass, 2026-06-30). They must be re-verified against the
 tenant's ERP **version** at implementation time.
 
-## Deferred (not in this iteration)
+## ERPNext Contact mapping
+
+The `email` and `phone` normalized fields illustrate the canonical case of the
+agnostic contract hiding a non-trivial provider-specific mapping.
+
+**The divergence.** On Dolibarr, `email` and `phone` are direct fields on the
+thirdparty REST resource — the normalized value maps one-to-one. On ERPNext,
+these fields live in a separate `Contact` document linked via a Dynamic Link
+(`links[]{link_doctype, link_name}`) and designated as the primary contact via
+`customer_primary_contact` / `supplier_primary_contact` and
+`is_primary_contact: 1`. The agent sees one normalized field; the mapping
+underneath is completely different.
+
+**Create flow (ERPNext).** Three HTTP calls, all hidden inside `callTool`:
+
+1. `POST /api/resource/Customer` (or `Supplier`) — returns `nativeId`.
+2. `POST /api/resource/Contact` with the Dynamic Link to `nativeId` and
+   `is_primary_contact: 1` — returns `contactName`.
+3. `PUT /api/resource/Customer/{nativeId}` with
+   `{customer_primary_contact: contactName}` to finalize the designation.
+
+**Update flow (ERPNext).**
+
+1. `PUT /api/resource/Customer/{nativeId}` for non-contact fields.
+2. `GET /api/resource/Contact` filtered by Dynamic Link, ordered
+   `is_primary_contact desc, creation asc` — deterministic pick.
+3. If an existing Contact is found: `GET /api/resource/Contact/{name}` first to
+   preserve child tables, then `PUT` with the new email/phone. If the contact is
+   not yet marked primary: `PUT` it with `is_primary_contact: 1` and `PUT` the
+   parent doc's `*_primary_contact` pointer.
+4. If no Contact exists: create one (as in the create flow) and update the
+   parent doc pointer.
+
+**Error handling.** If the document write succeeds but the Contact step fails, a
+`CONTACT_FAILED` structured error is returned. The document is intact
+(`nativeId` is present in the error context); the recovery instruction tells the
+operator to fix the contact manually or retry. This is a deliberate trade-off:
+rolling back the committed document would require an additional ERP call that
+could also fail.
+
+**Why this matters for the architecture.** The normalized surface hides the
+Contact indirection entirely from the agent. An agent calling
+`erp.customer_create` with `email: "alice@example.com"` receives a
+`committed: true` result with `nativeId`; it never learns that three HTTP calls
+occurred or that ERPNext stores emails in a linked doctype. This is the
+agnostic-surface promise: same tool, same fields, provider-specific complexity
+stays inside the adapter.
+
+## Deferred (out of current scope)
 
 - Best-of-breed superset interface (own-ERP phase).
 - **Idempotency** — `idempotencyKey` + durable dedup (keyed by
   `tenant + tool + key + payload-hash`, shared store for stateless
   multi-instance). Removed from the MVP because no native ERP support;
   reintroduce only when backed by a real dedup store.
-- `update` / `submit` / `cancel` / `delete` write tools and lifecycle semantics.
-- `supplier_create` (shows the doctype-vs-role-flag divergence).
-- `Partnership` customer kind; ERPNext `externalRef` via configured custom
-  field.
+- Transactional documents with line items: sales order, sales invoice, and
+  quotation/proposal creates — multi-line bodies, computed totals, and lifecycle
+  awareness.
+- Document lifecycle actions: `submit`, `cancel`, `validate` (Frappe
+  `frappe.client.submit` / `frappe.client.cancel`; Dolibarr `/validate`
+  endpoints).
+- Entity delete (soft-delete or cancel where the ERP supports it).
+- Purchase flows: supplier order and invoice creates.
+- `Partnership` customer kind; ERPNext `externalRef` via a tenant-configured
+  custom field.
+- Country-aware address fields (both ERPs handle country differently; deferred
+  until mapping is stable for both).
 
 ## References
 

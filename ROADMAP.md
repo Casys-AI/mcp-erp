@@ -51,6 +51,26 @@ and first shared MCP Apps viewers are in place.
 - Normalized payloads should preserve the native provider id, native type,
   lifecycle state, available native actions, and raw provider payload.
 
+### Write surfaces
+
+Normalized entity CRUD is shipped for ERPNext and Dolibarr via the `erp.*`
+surface with required `mode: "preview" | "commit"`:
+
+- Delivered: `erp.customer_create`, `erp.customer_update`, `erp.product_create`,
+  `erp.product_update`, `erp.supplier_create`, `erp.supplier_update`, and
+  `erp.capabilities_describe`.
+
+Remaining write work toward beta:
+
+- Transactional documents with line items: sales order, sales invoice, and
+  quotation/proposal creates (multi-line bodies, computed totals, lifecycle
+  awareness).
+- Document lifecycle actions: submit, cancel, validate.
+- Purchase flows: supplier order and invoice creates.
+- Entity delete (soft-delete or archive where the ERP supports it).
+- Idempotency key and durable dedup store (deferred until a native ERP mechanism
+  or a shared store is in place).
+
 ### Package surface
 
 - Keep the single-package shape until at least two external consumers need a
@@ -66,5 +86,6 @@ and first shared MCP Apps viewers are in place.
   boring.
 - Candidate adapters: Odoo, Business Central, Zoho Books/Inventory, Sage, and
   Infor.
-- Add write surfaces gradually, starting with provider-native names and explicit
-  operation semantics.
+- Expand write surfaces beyond entity CRUD: best-of-breed superset interface
+  (own-ERP phase) and country-aware address fields once both ERPs have stable
+  mapping.

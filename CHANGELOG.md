@@ -66,6 +66,55 @@ the project adheres to
 - Diagnostics payloads and viewer binding for `erpnext.ping` and
   `dolibarr.ping`, including ERP type, tenant context, API URL, and exposed tool
   names.
+- Normalized write surface `erp.*` across ERPNext and Dolibarr:
+  `erp.customer_create`, `erp.product_create`, `erp.customer_update`,
+  `erp.product_update`, `erp.supplier_create`, `erp.supplier_update`, and the
+  read-only `erp.capabilities_describe`. Write tools require an explicit
+  `mode: "preview" | "commit"` — no default. `preview` validates inputs and
+  echoes the resolved native payload without writing; `commit` performs the
+  write. Results always carry `committed: true | false`; `nativeId` is only
+  present on `committed: true`. Native creates and updates are internal dispatch
+  inside each adapter's `callTool` and are not exposed through `tools()`. Tenant
+  connection defaults on `ErpConnection`: ERPNext requires `defaultItemGroup`
+  (mandatory for `Item`) and `defaultStockUom`; `defaultCustomerGroup` and
+  `defaultTerritory` are optional. Dolibarr requires `defaultIndividualTypentId`
+  for individual-party creates.
+- Structured write errors serialized to JSON by the error mapper:
+  `INVALID_MODE`, `MISSING_REQUIRED_FIELD`, `INVALID_FIELD`,
+  `MISSING_REQUIRED_CONFIG`, `UNSUPPORTED_FIELD`, `CREATE_FAILED` — each
+  carrying `code` + `context` + `recovery`. `NormalizedError` (Wave 3 reads) is
+  now also serialized as structured JSON rather than a prose string.
+- **ERPNext Contact mapping** — on ERPNext, `email` and `phone` for a Customer
+  or Supplier live in a separate `Contact` document linked via a Dynamic Link
+  and designated as primary contact (`customer_primary_contact` /
+  `supplier_primary_contact`, `is_primary_contact: 1`). Create flow: POST
+  Customer/Supplier → POST Contact with `is_primary_contact: 1` → PUT doc
+  `*_primary_contact` field. Update flow: find-or-create the primary Contact
+  (ordered `is_primary_contact desc, creation asc`), GET existing Contact first
+  to preserve child tables, PUT with new email/phone, promote to primary if
+  needed, and PUT the doc's primary-contact pointer. A `CONTACT_FAILED` error is
+  raised when the document was committed but the Contact step failed; the
+  document is intact and the contact can be corrected manually. Dolibarr stores
+  `email` and `phone` as direct fields on the thirdparty resource — same
+  normalized input contract, entirely different internal mapping.
+- `src/write.ts` — write-path primitives shared by native adapters and the
+  normalized layer: `WriteMode` type, `WriteError` class (AX machine-readable
+  errors with `code`, `context`, `recovery`), `WriteResult` interface,
+  `WRITE_CAPABILITIES` per-ERP manifest (supported tools and unsupported
+  fields), `parseWriteMode`, and `assertFieldSupported`. Verified conformance
+  notes from the Codex review: Dolibarr supplier uses `code_fournisseur` (not
+  `code_client`) as the external-ref field; `uom` is unsupported on Dolibarr and
+  is listed in `WRITE_CAPABILITIES.dolibarr.unsupportedFields`.
+- `transport` option (`"stateful" | "stateless"`, default `"stateful"`) on
+  `createErpMcpApp` and `createErpRemoteApp`. The stateless path conforms to
+  SEP-2575 (`protocolVersion` via `_meta`, error codes `-32602` / `-32004`) and
+  has been validated end-to-end through the multi-tenant middleware.
+
+### Changed
+
+- `@casys/mcp-server` bumped from `^0.20.0` to `^0.21.0`. This release adds
+  SEP-2575 stateless transport conformance and auth/OAuth fixes. The stateful
+  default transport path is unchanged.
 
 ### Removed
 
