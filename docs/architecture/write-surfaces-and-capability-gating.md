@@ -23,8 +23,10 @@ are closed.
   - **Remote / multi-tenant** (`buildMultiTenantHandlersMap`, `src/client.ts`):
     the ERP is resolved **per request** from the authenticated tenant
     (`ctx.authInfo.tenantId`); it is *not* known at boot. The server also
-    supports the **stateless** transport (MCP spec 2026-07-28), where
-    `tools/list` can be served without tenant context.
+    supports the **stateless** transport (MCP spec 2026-07-28). The server is
+    **authenticated**, so the tenant identity rides on *every* request —
+    including `tools/list` — even in stateless mode. `tools/list` can therefore
+    be resolved per tenant; it is not forced to be tenant-blind.
 
 Two precedents and one review fed this decision:
 - **`mcp-einvoice`** — the in-house pattern for varying a tool surface by
@@ -54,24 +56,36 @@ Two precedents and one review fed this decision:
    declares the capabilities it `requires`. A tool is usable for an ERP iff that
    ERP's manifest satisfies the tool's `requires`.
 
-3. **Dual-mode gating — same mechanism, applied in two places.**
-   - **Mono-tenant**: filter `tools/list` at boot by the deployment ERP's
-     capabilities — exactly the einvoice pattern. This is the "a client picks one
-     ERP and sticks with it" case.
-   - **Multi-tenant / stateless**: `tools/list` cannot carry per-tenant truth, so
-     it exposes the **superset catalog**, and enforcement happens **at call
-     time**: a structured fast-fail `UNSUPPORTED_CAPABILITY` (machine-readable
-     `code` + `context.requires` + `context.erpType` + `recovery`). The
-     capability manifest drives both the boot filter and the call-time check.
+3. **Per-tenant filtered `tools/list` is the primary mechanism; the call-time
+   check is defense-in-depth.**
+   - **Primary — filtered listing.** `tools/list` is filtered by the tenant's
+     ERP capabilities, so an agent **literally never receives** a tool its ERP
+     does not support — it cannot call what it cannot see. This holds in **both**
+     deployment shapes: mono-tenant filters once at boot (the einvoice pattern);
+     multi-tenant filters per request, which is possible because the server is
+     authenticated and the `tenantId` is present on `tools/list` too (even
+     stateless). There is **no superset catalog** exposed to agents.
+   - **Defense-in-depth — call-time fast-fail.** `tools/call` still revalidates
+     the capability and fails with a structured `UNSUPPORTED_CAPABILITY`
+     (machine-readable `code` + `context.requires` + `context.erpType` +
+     `recovery`). This is a safety net for leaks or unauthenticated discovery —
+     **not** the everyday mechanism.
+   - The same capability manifest drives both the listing filter and the
+     call-time check.
+   - *Implementation note:* the current `buildMultiTenantHandlersMap`
+     (`src/client.ts:122`) registers a **static** tool list and only resolves the
+     adapter per tenant **at call time**. To honor the primary mechanism, the
+     **listing** must become tenant-resolved as well, not just the handlers.
 
 4. **`erp.capabilities_describe` read-only tool** (optionally mirrored as an
-   `erp://tenant/capabilities` resource). Because in multi-tenant/stateless a
-   model sees the superset in `tools/list` but its tenant may not support every
-   tool, the model needs a reliable way to ask "what can *this* tenant do?".
-   Output is a strict schema: `erpType`, `supportedTools`,
-   `supportedCapabilities`, `supportedFields`, `missingConfiguration`,
-   `capabilityVersion`. A tool is preferred over a resource because resources are
-   host/app-driven and less reliable for an LLM.
+   `erp://tenant/capabilities` resource). With the listing already filtered, the
+   agent's *tool presence* is correct; `capabilities_describe` adds the
+   finer-grained truth the tool list cannot carry — which **fields** are
+   supported, missing tenant configuration, capability version. Output is a
+   strict schema: `erpType`, `supportedTools`, `supportedCapabilities`,
+   `supportedFields`, `missingConfiguration`, `capabilityVersion`. A tool is
+   preferred over a resource because resources are host/app-driven and less
+   reliable for an LLM.
 
 5. **`erpType` stays out of write inputs.** It is derived from the authenticated
    tenant, returned in the *result* (not asked in the input). Never expose native
