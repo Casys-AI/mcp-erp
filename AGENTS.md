@@ -36,8 +36,9 @@ README.md
 - **JSON Schema draft-07** for `inputSchema`. Keep schemas tight —
   `additionalProperties: false` is the default.
 - **Provider adapters stay under `src/platform/erp/<erpType>/`.** Keep raw HTTP
-  I/O in `client.ts`, provider payload shapes in `types.ts`, and split large
-  adapters by native tool family under `handlers/` when they become too large.
+  I/O in `client.ts`, provider payload shapes in `types.ts`, provider tool
+  manifests in `tools.ts`, and native tool behavior under
+  `handlers/<family>.ts`.
 - **Naming**: tools are `<erpType>.<action>` (e.g. `erpnext.customer_list`).
 
 ## Adding an ERP

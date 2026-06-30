@@ -164,6 +164,7 @@ src/
       erpnext/handlers/catalog.ts
       erpnext/handlers/documents.ts
       erpnext/handlers/inventory.ts
+      erpnext/handlers/writes.ts
       erpnext/adapter.ts  # Frappe REST provider tools
       erpnext/adapter_test.ts
       erpnext/types.ts    # ERPNext native payload shapes
@@ -175,6 +176,7 @@ src/
       dolibarr/handlers/catalog.ts
       dolibarr/handlers/documents.ts
       dolibarr/handlers/inventory.ts
+      dolibarr/handlers/writes.ts
       dolibarr/adapter.ts # Dolibarr REST provider tools
       dolibarr/adapter_test.ts
       dolibarr/types.ts   # Dolibarr native payload shapes
@@ -196,7 +198,7 @@ src/
 2. Keep `createErpMcpApp()` and `ErpToolsClient` aligned with
    `@casys/mcp-server`.
 3. Test stdio and HTTP locally against real ERPNext/Dolibarr instances.
-4. Continue splitting provider adapters by tool family after the raw REST
-   clients.
+4. Keep provider adapters as thin dispatch modules and add future native tool
+   behavior under provider handler families.
 5. Extend MCP Apps viewers after tool payloads stabilize.
 6. Add normalized tools only after both provider mappings are evidence-backed.

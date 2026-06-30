@@ -3,7 +3,7 @@
 Status: working architecture note. The mixed hexagonal / feature-slice target is
 validated as the direction. The repository now uses that shape for the
 transverse core, provider I/O, MCP boundary, viewers, the first normalized
-feature slices, and the first provider handler families.
+feature slices, and the current provider handler families.
 
 ## Goal
 
@@ -34,6 +34,8 @@ The current package has moved past scaffold-only:
   handler family.
 - `src/platform/erp/erpnext/handlers/inventory.ts`: ERPNext Bin stock read
   handler family.
+- `src/platform/erp/erpnext/handlers/writes.ts`: ERPNext Customer, Item, and
+  Supplier write handler family, including linked Contact orchestration.
 - `src/platform/erp/erpnext/adapter.ts`: provider-native Frappe tools.
 - `src/platform/erp/dolibarr/client.ts`: raw Dolibarr REST client.
 - `src/platform/erp/dolibarr/tools.ts`: Dolibarr provider tool manifest split by
@@ -50,6 +52,8 @@ The current package has moved past scaffold-only:
   handler family.
 - `src/platform/erp/dolibarr/handlers/inventory.ts`: Dolibarr stock movement
   read handler family.
+- `src/platform/erp/dolibarr/handlers/writes.ts`: Dolibarr thirdparty, product,
+  and supplier write handler family.
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
@@ -282,6 +286,7 @@ src/
           catalog.ts
           documents.ts
           inventory.ts
+          writes.ts
         adapter.ts
         adapter_test.ts
         types.ts
@@ -295,6 +300,7 @@ src/
           catalog.ts
           documents.ts
           inventory.ts
+          writes.ts
         adapter.ts
         adapter_test.ts
         types.ts
@@ -319,10 +325,8 @@ or `platform/`.
 
 The target architecture is not complete until these moves are done:
 
-1. Continue splitting `platform/erp/*/adapter.ts` handlers by provider tool
-   family so adapter files no longer own every native tool handler in one large
-   module. The static tool manifests and diagnostics handlers have already moved
-   out.
+1. Keep future provider-native growth in `platform/erp/*/handlers/<family>.ts`
+   instead of putting new tool branches back into `adapter.ts`.
 2. Add feature slices for payment and stock movement once their normalized
    contracts are proven.
 3. Move read/list handlers from `normalized-adapter.ts` into entity-specific
@@ -336,8 +340,8 @@ The target architecture is not complete until these moves are done:
    `@casys/mcp-server`; adapters must stay wire-agnostic.
 3. Keep write capabilities and typed errors in the transverse domain layer
    before adding more ERPs.
-4. Continue splitting provider adapters by tool family after the raw HTTP
-   clients.
+4. Keep provider adapters as dispatch/composition modules; new provider behavior
+   belongs in tool manifests, clients, or handler families.
 5. Keep `erpnext-dolibarr-api-comparison.md` current with endpoint evidence and
    field/lifecycle mapping before adding normalized tools.
 6. Reuse `mcp-erpnext` Frappe client/tool patterns, but remove env-based
