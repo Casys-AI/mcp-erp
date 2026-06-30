@@ -60,16 +60,13 @@ import {
   normalizeErpNextCustomer,
 } from "./features/customer/mappers/erpnext.ts";
 import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
-import { normalizeDolibarrInvoice } from "./features/invoice/mappers/dolibarr.ts";
-import { normalizeErpNextSalesInvoice } from "./features/invoice/mappers/erpnext.ts";
+import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
 import { callProductTool } from "./features/product/product.handler.ts";
 import { QUOTATION_TOOLS } from "./features/quotation/quotation.contract.ts";
-import { normalizeDolibarrProposal } from "./features/quotation/mappers/dolibarr.ts";
-import { normalizeErpNextQuotation } from "./features/quotation/mappers/erpnext.ts";
+import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
 import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.ts";
-import { normalizeDolibarrOrder } from "./features/sales-order/mappers/dolibarr.ts";
-import { normalizeErpNextSalesOrder } from "./features/sales-order/mappers/erpnext.ts";
+import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
 import {
   mapSupplierCreateToDolibarr,
@@ -503,95 +500,32 @@ export class NormalizedAdapter {
     });
     if (product) return product;
 
-    // ── sales_invoice_get ───────────────────────────────────────────────────
-    if (name === "erp.sales_invoice_get") {
-      const nativeId = resolveNativeId(args);
+    const invoice = await callInvoiceTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (invoice) return invoice;
 
-      if (erpType === "erpnext" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "erpnext.sales_invoice_get",
-          { name: nativeId },
-          ctx,
-        );
-        return {
-          content: normalizeErpNextSalesInvoice(
-            extractDoc(r.content, "salesInvoice"),
-          ),
-        };
-      }
+    const salesOrder = await callSalesOrderTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (salesOrder) return salesOrder;
 
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const id = parseDolibarrNumericId(nativeId);
-        const r = await nativeAdapter.callTool(
-          "dolibarr.invoice_get",
-          { id },
-          ctx,
-        );
-        return {
-          content: normalizeDolibarrInvoice(extractDoc(r.content, "invoice")),
-        };
-      }
-    }
-
-    // ── sales_order_get ─────────────────────────────────────────────────────
-    if (name === "erp.sales_order_get") {
-      const nativeId = resolveNativeId(args);
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "erpnext.sales_order_get",
-          { name: nativeId },
-          ctx,
-        );
-        return {
-          content: normalizeErpNextSalesOrder(
-            extractDoc(r.content, "salesOrder"),
-          ),
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const id = parseDolibarrNumericId(nativeId);
-        const r = await nativeAdapter.callTool(
-          "dolibarr.order_get",
-          { id },
-          ctx,
-        );
-        return {
-          content: normalizeDolibarrOrder(extractDoc(r.content, "order")),
-        };
-      }
-    }
-
-    // ── quotation_get ───────────────────────────────────────────────────────
-    if (name === "erp.quotation_get") {
-      const nativeId = resolveNativeId(args);
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const r = await nativeAdapter.callTool(
-          "erpnext.quotation_get",
-          { name: nativeId },
-          ctx,
-        );
-        return {
-          content: normalizeErpNextQuotation(
-            extractDoc(r.content, "quotation"),
-          ),
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const id = parseDolibarrNumericId(nativeId);
-        const r = await nativeAdapter.callTool(
-          "dolibarr.proposal_get",
-          { id },
-          ctx,
-        );
-        return {
-          content: normalizeDolibarrProposal(extractDoc(r.content, "proposal")),
-        };
-      }
-    }
+    const quotation = await callQuotationTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (quotation) return quotation;
 
     // ── customer_create ───────────────────────────────────────────────────────
     if (name === "erp.customer_create") {

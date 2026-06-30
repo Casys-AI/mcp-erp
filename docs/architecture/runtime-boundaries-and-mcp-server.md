@@ -151,9 +151,9 @@ src/
     customer/             # customer contract + ERPNext/Dolibarr mappers
     product/              # catalog item contract, mappers, normalized handler
     supplier/             # supplier contract + mappers
-    invoice/              # sales invoice contract + normalizers
-    sales-order/          # sales order contract + normalizers
-    quotation/            # quotation/proposal contract + normalizers
+    invoice/              # sales invoice contract, normalizers, handler
+    sales-order/          # sales order contract, normalizers, handler
+    quotation/            # quotation/proposal contract, normalizers, handler
   platform/
     erp/
       erpnext/client.ts   # raw Frappe REST I/O

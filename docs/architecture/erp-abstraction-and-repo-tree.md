@@ -62,7 +62,7 @@ The current package has moved past scaffold-only:
   writes.
 - `src/features/invoice`, `src/features/sales-order`, and
   `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
-  document normalizers.
+  document normalizers and normalized read handlers.
 - `src/platform/viewers/viewers.ts` + `src/ui/dist`: first MCP Apps viewer
   registration and built viewer HTML, ported from `mcp-erpnext`.
 - `server.ts`: local/dev stdio or HTTP MCP server using `@casys/mcp-server`.
@@ -260,18 +260,21 @@ src/
         dolibarr.ts
     invoice/
       invoice.contract.ts
+      invoice.handler.ts
       invoice.types.ts
       mappers/
         erpnext.ts
         dolibarr.ts
     sales-order/
       sales-order.contract.ts
+      sales-order.handler.ts
       sales-order.types.ts
       mappers/
         erpnext.ts
         dolibarr.ts
     quotation/
       quotation.contract.ts
+      quotation.handler.ts
       quotation.types.ts
       mappers/
         erpnext.ts

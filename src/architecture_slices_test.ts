@@ -15,6 +15,7 @@ import {
   mapCustomerUpdateToErpNext,
 } from "./features/customer/mappers/erpnext.ts";
 import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
+import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
 import { normalizeDolibarrInvoice } from "./features/invoice/mappers/dolibarr.ts";
 import { normalizeErpNextSalesInvoice } from "./features/invoice/mappers/erpnext.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
@@ -27,6 +28,8 @@ import { normalizeErpNextQuotation } from "./features/quotation/mappers/erpnext.
 import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.ts";
 import { normalizeDolibarrOrder } from "./features/sales-order/mappers/dolibarr.ts";
 import { normalizeErpNextSalesOrder } from "./features/sales-order/mappers/erpnext.ts";
+import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
+import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
 import { mapSupplierCreateToDolibarr } from "./features/supplier/mappers/dolibarr.ts";
 import { mapSupplierCreateToErpNext } from "./features/supplier/mappers/erpnext.ts";
@@ -381,6 +384,12 @@ Deno.test("architecture slices — document contracts and mappers own normalized
     }).data.dueDate,
     "2026-02-12",
   );
+});
+
+Deno.test("architecture slices — document features own normalized read handlers", () => {
+  assertEquals(typeof callInvoiceTool, "function");
+  assertEquals(typeof callSalesOrderTool, "function");
+  assertEquals(typeof callQuotationTool, "function");
 });
 
 Deno.test("architecture slices — platform layer exposes ERP and MCP boundaries", () => {
