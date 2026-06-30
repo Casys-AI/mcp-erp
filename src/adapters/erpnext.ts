@@ -729,12 +729,12 @@ class FrappeRestClient {
     linkDoctype: "Customer" | "Supplier",
     linkName: string,
     requestOptions: FrappeRequestOptions = {},
-  ): Promise<string | null> {
+  ): Promise<{ name: string; isPrimary: boolean } | null> {
     const filters = JSON.stringify([
       ["Dynamic Link", "link_doctype", "=", linkDoctype],
       ["Dynamic Link", "link_name", "=", linkName],
     ]);
-    const fields = JSON.stringify(["name"]);
+    const fields = JSON.stringify(["name", "is_primary_contact"]);
     // Fix 2 — order_by déterministe : préfère le contact marqué is_primary_contact, puis le plus ancien
     const query = `?filters=${encodeURIComponent(filters)}&fields=${
       encodeURIComponent(fields)
@@ -751,7 +751,11 @@ class FrappeRestClient {
       return null;
     }
     const first = result.data[0];
-    return typeof first?.name === "string" ? String(first.name) : null;
+    if (typeof first?.name !== "string") return null;
+    return {
+      name: String(first.name),
+      isPrimary: first.is_primary_contact === 1,
+    };
   }
 
   async updateContact(
@@ -1964,9 +1968,28 @@ export function createErpnextAdapter(
               { signal: _ctx.signal },
             );
             if (existingContact) {
-              await client.updateContact(existingContact, { email, phone }, {
-                signal: _ctx.signal,
-              });
+              await client.updateContact(
+                existingContact.name,
+                { email, phone },
+                {
+                  signal: _ctx.signal,
+                },
+              );
+              // Promote to primary if not already marked as such
+              if (!existingContact.isPrimary) {
+                await client.update(
+                  "Contact",
+                  existingContact.name,
+                  { is_primary_contact: 1 },
+                  { signal: _ctx.signal },
+                );
+                await client.update(
+                  "Customer",
+                  nativeId,
+                  { customer_primary_contact: existingContact.name },
+                  { signal: _ctx.signal },
+                );
+              }
             } else {
               // Fix 1 — nouveau Contact → PUT Customer pour le désigner primaire
               const contactName = await client.createContact(
@@ -2209,9 +2232,28 @@ export function createErpnextAdapter(
               { signal: _ctx.signal },
             );
             if (existingContact) {
-              await client.updateContact(existingContact, { email, phone }, {
-                signal: _ctx.signal,
-              });
+              await client.updateContact(
+                existingContact.name,
+                { email, phone },
+                {
+                  signal: _ctx.signal,
+                },
+              );
+              // Promote to primary if not already marked as such
+              if (!existingContact.isPrimary) {
+                await client.update(
+                  "Contact",
+                  existingContact.name,
+                  { is_primary_contact: 1 },
+                  { signal: _ctx.signal },
+                );
+                await client.update(
+                  "Supplier",
+                  nativeId,
+                  { supplier_primary_contact: existingContact.name },
+                  { signal: _ctx.signal },
+                );
+              }
             } else {
               // Fix 1 — nouveau Contact → PUT Supplier pour le désigner primaire
               const contactName = await client.createContact(

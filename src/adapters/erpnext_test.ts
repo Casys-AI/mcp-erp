@@ -2090,13 +2090,17 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: no existin
   }
 });
 
-Deno.test("erpnext.customer_update — email triggers find-or-create: existing → PUT Contact", async () => {
+Deno.test("erpnext.customer_update — email triggers find-or-create: existing already-primary → PUT Contact, no promotion", async () => {
   const captured: CapturedFetch[] = [];
   const restore = mockFetchSequence(
     [
       { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
-      { status: 200, body: { data: [{ name: "CONT-1" }] } }, // GET Contact (findPrimaryContact — found)
-      // Fix 3 — updateContact fait GET+PUT (merge child tables)
+      // findPrimaryContact — found, already marked is_primary_contact:1
+      {
+        status: 200,
+        body: { data: [{ name: "CONT-1", is_primary_contact: 1 }] },
+      },
+      // updateContact GET (merge child tables)
       {
         status: 200,
         body: {
@@ -2106,7 +2110,7 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: existing �
             phone_nos: [],
           },
         },
-      }, // GET Contact (updateContact — fetch existing)
+      },
       { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact
     ],
     captured,
@@ -2118,12 +2122,13 @@ Deno.test("erpnext.customer_update — email triggers find-or-create: existing �
       { mode: "commit", name: "CUST-001", email: "acme@example.com" },
       { tenantId: "t", actorSubject: null },
     );
+    // Already primary → no promotion PUTs → exactly 4 requests
     assertEquals(captured.length, 4);
     assertEquals(captured[2].method, "GET");
     assertEquals(captured[2].url.pathname, "/api/resource/Contact/CONT-1");
     assertEquals(captured[3].method, "PUT");
     assertEquals(captured[3].url.pathname, "/api/resource/Contact/CONT-1");
-    // Fix 3 — la ligne primaire est mise à jour, pas remplacée (pas de perte des secondaires)
+    // Fix 3 — la ligne primaire est mise à jour, pas remplacée
     const putBody = JSON.parse(captured[3].body as string);
     assertEquals(putBody.email_ids[0].email_id, "acme@example.com");
     assertEquals(putBody.email_ids[0].is_primary, 1);
@@ -2284,7 +2289,7 @@ Deno.test("findPrimaryContact — query includes order_by is_primary_contact des
     captured,
   );
   try {
-    const adapter = createTestAdapter();
+    const _adapter = createTestAdapter();
     // Déclenche findPrimaryContact via customer_update avec email
     const restore2 = mockFetch(
       { status: 200, body: { data: { name: "CUST-001" } } },
@@ -2427,6 +2432,103 @@ Deno.test("erpnext.supplier_update — CONTACT_FAILED recovery text says 'Docume
     assertEquals(err.code, "CONTACT_FAILED");
     // Fix 4
     assertEquals(err.recovery.startsWith("Document updated"), true);
+  } finally {
+    restore();
+  }
+});
+
+// ── Codex finding: promote non-primary existing contact ───────────────────────
+
+Deno.test("erpnext.customer_update — existing non-primary contact is promoted after update", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer
+      // findPrimaryContact — found but NOT marked primary (is_primary_contact: 0)
+      {
+        status: 200,
+        body: { data: [{ name: "CONT-1", is_primary_contact: 0 }] },
+      },
+      // updateContact GET
+      {
+        status: 200,
+        body: {
+          data: { name: "CONT-1", email_ids: [], phone_nos: [] },
+        },
+      },
+      { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact (updateContact)
+      { status: 200, body: { data: { name: "CONT-1" } } }, // PUT Contact (promote is_primary_contact:1)
+      { status: 200, body: { data: { name: "CUST-001" } } }, // PUT Customer (customer_primary_contact)
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.customer_update",
+      { mode: "commit", name: "CUST-001", email: "new@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    // 6 requests: PUT Customer, GET Contact list, GET Contact, PUT Contact (update),
+    //             PUT Contact (promote), PUT Customer (primary link)
+    assertEquals(captured.length, 6);
+    // Promotion — PUT Contact with is_primary_contact:1
+    assertEquals(captured[4].method, "PUT");
+    assertEquals(captured[4].url.pathname, "/api/resource/Contact/CONT-1");
+    const promoteContactBody = JSON.parse(captured[4].body as string);
+    assertEquals(promoteContactBody.is_primary_contact, 1);
+    // Promotion — PUT Customer with customer_primary_contact
+    assertEquals(captured[5].method, "PUT");
+    assertEquals(captured[5].url.pathname, "/api/resource/Customer/CUST-001");
+    const promoteCustomerBody = JSON.parse(captured[5].body as string);
+    assertEquals(promoteCustomerBody.customer_primary_contact, "CONT-1");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.supplier_update — existing non-primary contact is promoted after update", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "SUPP-001" } } }, // PUT Supplier
+      // findPrimaryContact — found but NOT marked primary
+      {
+        status: 200,
+        body: { data: [{ name: "CONT-S1", is_primary_contact: 0 }] },
+      },
+      // updateContact GET
+      {
+        status: 200,
+        body: {
+          data: { name: "CONT-S1", email_ids: [], phone_nos: [] },
+        },
+      },
+      { status: 200, body: { data: { name: "CONT-S1" } } }, // PUT Contact (updateContact)
+      { status: 200, body: { data: { name: "CONT-S1" } } }, // PUT Contact (promote is_primary_contact:1)
+      { status: 200, body: { data: { name: "SUPP-001" } } }, // PUT Supplier (supplier_primary_contact)
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.supplier_update",
+      { mode: "commit", name: "SUPP-001", email: "new@example.com" },
+      { tenantId: "t", actorSubject: null },
+    );
+    // 6 requests total
+    assertEquals(captured.length, 6);
+    // Promotion — PUT Contact with is_primary_contact:1
+    assertEquals(captured[4].method, "PUT");
+    assertEquals(captured[4].url.pathname, "/api/resource/Contact/CONT-S1");
+    const promoteContactBody = JSON.parse(captured[4].body as string);
+    assertEquals(promoteContactBody.is_primary_contact, 1);
+    // Promotion — PUT Supplier with supplier_primary_contact
+    assertEquals(captured[5].method, "PUT");
+    assertEquals(captured[5].url.pathname, "/api/resource/Supplier/SUPP-001");
+    const promoteSupplierBody = JSON.parse(captured[5].body as string);
+    assertEquals(promoteSupplierBody.supplier_primary_contact, "CONT-S1");
   } finally {
     restore();
   }
