@@ -42,23 +42,11 @@ import type {
 } from "./domain/adapter.ts";
 import type { NormalizedPayload } from "./domain/normalized.ts";
 import { invalidNativeIdError, NormalizedError } from "./domain/normalized.ts";
-import {
-  assertFieldSupported,
-  parseWriteMode,
-  WRITE_CAPABILITIES,
-  WriteError,
-} from "./domain/write.ts";
+import { WRITE_CAPABILITIES } from "./domain/write.ts";
 import { CUSTOMER_TOOLS } from "./features/customer/customer.contract.ts";
-import {
-  mapCustomerCreateToDolibarr,
-  mapCustomerUpdateToDolibarr,
-  normalizeDolibarrParty,
-} from "./features/customer/mappers/dolibarr.ts";
-import {
-  mapCustomerCreateToErpNext,
-  mapCustomerUpdateToErpNext,
-  normalizeErpNextCustomer,
-} from "./features/customer/mappers/erpnext.ts";
+import { callCustomerTool } from "./features/customer/customer.handler.ts";
+import { normalizeDolibarrParty } from "./features/customer/mappers/dolibarr.ts";
+import { normalizeErpNextCustomer } from "./features/customer/mappers/erpnext.ts";
 import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
@@ -68,15 +56,8 @@ import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
 import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.ts";
 import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
-import {
-  mapSupplierCreateToDolibarr,
-  mapSupplierUpdateToDolibarr,
-} from "./features/supplier/mappers/dolibarr.ts";
-import {
-  mapSupplierCreateToErpNext,
-  mapSupplierUpdateToErpNext,
-  normalizeErpNextSupplier,
-} from "./features/supplier/mappers/erpnext.ts";
+import { callSupplierTool } from "./features/supplier/supplier.handler.ts";
+import { normalizeErpNextSupplier } from "./features/supplier/mappers/erpnext.ts";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -283,55 +264,6 @@ function extractDoc(
   return {};
 }
 
-// ─── Write arg validators ─────────────────────────────────────────────────────
-
-/** Require a non-empty string arg. Fast-fail with WriteError(MISSING_REQUIRED_FIELD). */
-function reqString(field: string, value: unknown, erpType: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "MISSING_REQUIRED_FIELD",
-      { field, erpType },
-      `Field '${field}' is required and must be a non-empty string.`,
-    );
-  }
-  return value;
-}
-
-/** Validate optional string arg — if present, must be non-empty. */
-function optString(
-  field: string,
-  value: unknown,
-  erpType: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a non-empty string when provided.`,
-    );
-  }
-  return value;
-}
-
-/** Validate optional enum arg — if present, must be in the allowed set. */
-function optEnum<T extends string>(
-  field: string,
-  value: unknown,
-  allowed: readonly T[],
-  erpType: string,
-): T | undefined {
-  if (value === undefined) return undefined;
-  if (!allowed.includes(value as T)) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, value, erpType },
-      `Field '${field}' must be one of: ${allowed.join(", ")} when provided.`,
-    );
-  }
-  return value as T;
-}
-
 // ─── NormalizedAdapter ────────────────────────────────────────────────────────
 
 /** Options for constructing a NormalizedAdapter. */
@@ -341,7 +273,7 @@ export interface NormalizedAdapterOptions {
 }
 
 /**
- * Cross-ERP adapter that exposes 7 normalized `erp.*` tools.
+ * Cross-ERP adapter that exposes the normalized `erp.*` tool surface.
  *
  * Does NOT implement `ErpAdapter` formally (the `erpType` constraint is
  * `'erpnext' | 'dolibarr'`, incompatible with this cross-ERP adapter).
@@ -359,7 +291,7 @@ export class NormalizedAdapter {
     this.#dolibarr = options.dolibarr;
   }
 
-  /** Returns the 7 normalized tool definitions (fresh copy each call). */
+  /** Returns the normalized tool definitions (fresh copy each call). */
   tools(): ErpToolDefinition[] {
     return NORMALIZED_TOOLS.map((tool) => ({
       ...tool,
@@ -527,205 +459,23 @@ export class NormalizedAdapter {
     });
     if (quotation) return quotation;
 
-    // ── customer_create ───────────────────────────────────────────────────────
-    if (name === "erp.customer_create") {
-      const mode = parseWriteMode(args);
-      // Validate all args strictly before any native call (AX: fast-fail).
-      const cname = reqString("name", args.name, erpType);
-      const kind = optEnum(
-        "kind",
-        args.kind,
-        ["company", "individual"] as const,
-        erpType,
-      ) ?? "company";
-      const taxId = optString("taxId", args.taxId, erpType);
-      const email = optString("email", args.email, erpType);
-      const phone = optString("phone", args.phone, erpType);
-      const currency = optString("currency", args.currency, erpType);
-      const externalRef = optString("externalRef", args.externalRef, erpType);
-      assertFieldSupported(erpType, "externalRef", args);
-      const customerInput = {
-        mode,
-        name: cname,
-        kind,
-        taxId,
-        externalRef,
-        email,
-        phone,
-        currency,
-      };
+    const customer = await callCustomerTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (customer) return customer;
 
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapCustomerCreateToErpNext(customerInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const nativePlan = mapCustomerCreateToDolibarr(customerInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
-
-    // ── customer_update ───────────────────────────────────────────────────────
-    if (name === "erp.customer_update") {
-      const mode = parseWriteMode(args);
-      const nativeId = reqString("nativeId", args.nativeId, erpType);
-      const cname = optString("name", args.name, erpType);
-      const taxId = optString("taxId", args.taxId, erpType);
-      const externalRef = optString("externalRef", args.externalRef, erpType);
-      assertFieldSupported(erpType, "externalRef", args);
-      const email = optString("email", args.email, erpType);
-      const phone = optString("phone", args.phone, erpType);
-      const currency = optString("currency", args.currency, erpType);
-      const customerInput = {
-        mode,
-        nativeId,
-        name: cname,
-        taxId,
-        externalRef,
-        email,
-        phone,
-        currency,
-      };
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapCustomerUpdateToErpNext(customerInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const numericId = parseDolibarrNumericId(nativeId);
-        const nativePlan = mapCustomerUpdateToDolibarr({
-          ...customerInput,
-          nativeId: numericId,
-        });
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
-
-    // ── supplier_create ───────────────────────────────────────────────────────
-    if (name === "erp.supplier_create") {
-      const mode = parseWriteMode(args);
-      const sname = reqString("name", args.name, erpType);
-      const taxId = optString("taxId", args.taxId, erpType);
-      const externalRef = optString("externalRef", args.externalRef, erpType);
-      assertFieldSupported(erpType, "externalRef", args);
-      const email = optString("email", args.email, erpType);
-      const phone = optString("phone", args.phone, erpType);
-      const currency = optString("currency", args.currency, erpType);
-      const supplierInput = {
-        mode,
-        name: sname,
-        taxId,
-        externalRef,
-        email,
-        phone,
-        currency,
-      };
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapSupplierCreateToErpNext(supplierInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const nativePlan = mapSupplierCreateToDolibarr(supplierInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
-
-    // ── supplier_update ───────────────────────────────────────────────────────
-    if (name === "erp.supplier_update") {
-      const mode = parseWriteMode(args);
-      const nativeId = reqString("nativeId", args.nativeId, erpType);
-      const sname = optString("name", args.name, erpType);
-      const taxId = optString("taxId", args.taxId, erpType);
-      const externalRef = optString("externalRef", args.externalRef, erpType);
-      assertFieldSupported(erpType, "externalRef", args);
-      const email = optString("email", args.email, erpType);
-      const phone = optString("phone", args.phone, erpType);
-      const currency = optString("currency", args.currency, erpType);
-      const supplierInput = {
-        mode,
-        nativeId,
-        name: sname,
-        taxId,
-        externalRef,
-        email,
-        phone,
-        currency,
-      };
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativePlan = mapSupplierUpdateToErpNext(supplierInput);
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const numericId = parseDolibarrNumericId(nativeId);
-        const nativePlan = mapSupplierUpdateToDolibarr({
-          ...supplierInput,
-          nativeId: numericId,
-        });
-        const r = await nativeAdapter.callTool(
-          nativePlan.toolName,
-          nativePlan.args,
-          ctx,
-        );
-        return {
-          content: { ...(r.content as Record<string, unknown>), erpType },
-        };
-      }
-    }
+    const supplier = await callSupplierTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (supplier) return supplier;
 
     // Should not reach here if erpType is valid — native adapter must be set.
     throw new NormalizedError(

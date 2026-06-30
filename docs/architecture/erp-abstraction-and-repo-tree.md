@@ -57,9 +57,8 @@ The current package has moved past scaffold-only:
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
-  business entities. `src/features/product/product.handler.ts` owns the first
-  extracted normalized feature handler for catalog item reads and product
-  writes.
+  business entities. Their `*.handler.ts` files own the extracted normalized
+  write/read feature handlers.
 - `src/features/invoice`, `src/features/sales-order`, and
   `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
   document normalizers and normalized read handlers.
@@ -241,6 +240,7 @@ src/
   features/
     customer/
       customer.contract.ts
+      customer.handler.ts
       customer.types.ts
       mappers/
         erpnext.ts
@@ -254,6 +254,7 @@ src/
         dolibarr.ts
     supplier/
       supplier.contract.ts
+      supplier.handler.ts
       supplier.types.ts
       mappers/
         erpnext.ts

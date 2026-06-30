@@ -10,6 +10,7 @@ import {
   mapCustomerCreateToDolibarr,
   mapCustomerUpdateToDolibarr,
 } from "./features/customer/mappers/dolibarr.ts";
+import { callCustomerTool } from "./features/customer/customer.handler.ts";
 import {
   mapCustomerCreateToErpNext,
   mapCustomerUpdateToErpNext,
@@ -31,6 +32,7 @@ import { normalizeErpNextSalesOrder } from "./features/sales-order/mappers/erpne
 import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
 import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
+import { callSupplierTool } from "./features/supplier/supplier.handler.ts";
 import { mapSupplierCreateToDolibarr } from "./features/supplier/mappers/dolibarr.ts";
 import { mapSupplierCreateToErpNext } from "./features/supplier/mappers/erpnext.ts";
 import { createDolibarrAdapter } from "./platform/erp/dolibarr/adapter.ts";
@@ -172,6 +174,10 @@ Deno.test("architecture slices — Dolibarr customer mapper preserves thirdparty
   });
 });
 
+Deno.test("architecture slices — customer feature owns normalized customer handler", () => {
+  assertEquals(typeof callCustomerTool, "function");
+});
+
 Deno.test("architecture slices — product contract and mappers own catalog item writes", () => {
   assertEquals(
     PRODUCT_TOOLS.map((tool) => tool.name),
@@ -276,6 +282,10 @@ Deno.test("architecture slices — supplier contract and mappers own supplier wr
       },
     },
   );
+});
+
+Deno.test("architecture slices — supplier feature owns normalized supplier handler", () => {
+  assertEquals(typeof callSupplierTool, "function");
 });
 
 Deno.test("architecture slices — document contracts and mappers own normalized reads", () => {

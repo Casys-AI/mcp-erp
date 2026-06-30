@@ -148,9 +148,9 @@ src/
     normalized.ts         # NormalizedPayload / NormalizedError
     write.ts              # write-mode and capability primitives
   features/
-    customer/             # customer contract + ERPNext/Dolibarr mappers
+    customer/             # customer contract, mappers, normalized handler
     product/              # catalog item contract, mappers, normalized handler
-    supplier/             # supplier contract + mappers
+    supplier/             # supplier contract, mappers, normalized handler
     invoice/              # sales invoice contract, normalizers, handler
     sales-order/          # sales order contract, normalizers, handler
     quotation/            # quotation/proposal contract, normalizers, handler
