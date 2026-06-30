@@ -7,6 +7,7 @@ interface CapturedFetch {
   readonly method: string;
   readonly headers: Headers;
   readonly signal: AbortSignal | null;
+  readonly body?: string;
 }
 
 function mockFetch(
@@ -25,6 +26,7 @@ function mockFetch(
       method: init?.method ?? "GET",
       headers: new Headers(init?.headers),
       signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
     });
 
     return Promise.resolve(
@@ -1299,6 +1301,71 @@ Deno.test("createDolibarrAdapter — proposal_get result includes normalized det
         amount: 800.0,
       },
     ]);
+  } finally {
+    restore();
+  }
+});
+
+// ── write surface: Task 7 + Task 8 ───────────────────────────────────────────
+
+Deno.test("dolibarr.thirdparty_create — commit POSTs name + client:1 and returns id", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 77 }, captured); // Dolibarr returns new id
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.thirdparty_create",
+      { mode: "commit", name: "Acme" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties");
+    assertEquals(captured[0].headers.get("content-type"), "application/json");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Acme");
+    assertEquals(body.client, 1);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "77");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.thirdparty_create — preview does not POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 1 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.thirdparty_create",
+      { mode: "preview", name: "Acme" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    assertEquals((r.content as { committed: boolean }).committed, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_create — commit sends type and ref, returns id", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 5 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.product_create",
+      { mode: "commit", label: "Widget", ref: "W-1", type: 1, price: 10 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].url.pathname, "/api/index.php/products");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.ref, "W-1");
+    assertEquals(body.label, "Widget");
+    assertEquals(body.type, 1);
+    assertEquals(body.price, 10);
+    assertEquals((r.content as { nativeId: string }).nativeId, "5");
   } finally {
     restore();
   }

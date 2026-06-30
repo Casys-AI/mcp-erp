@@ -8,6 +8,7 @@
  */
 
 import type { ErpConnection } from "../connection.ts";
+import { parseWriteMode, WriteError } from "../write.ts";
 import {
   type ErpAdapter,
   type ErpToolCallContext,
@@ -627,20 +628,50 @@ class DolibarrRestClient {
     );
   }
 
+  async createThirdparty(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/thirdparties",
+      "/thirdparties",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async createProduct(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/products",
+      "/products",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
   private async request<T>(
     method: string,
     path: string,
     errorPath: string,
     signal?: AbortSignal,
+    body?: string,
   ): Promise<T> {
     let response: Response;
     try {
+      const headers: Record<string, string> = {
+        "accept": "application/json",
+        "dolapikey": this.connection.apiKey,
+      };
+      if (body !== undefined) headers["content-type"] = "application/json";
       response = await fetch(`${this.baseUrl}${path}`, {
         method,
-        headers: {
-          "accept": "application/json",
-          "dolapikey": this.connection.apiKey,
-        },
+        headers,
+        body,
         signal,
       });
     } catch (error) {
@@ -652,19 +683,27 @@ class DolibarrRestClient {
       );
     }
 
-    const body = await readResponseBody(response);
+    const responseBody = await readResponseBody(response);
     if (!response.ok) {
       throw new DolibarrApiError(
         `Dolibarr ${method} ${errorPath} failed: ${
-          extractDolibarrErrorMessage(body, response.statusText)
+          extractDolibarrErrorMessage(responseBody, response.statusText)
         }`,
         response.status,
-        body,
+        responseBody,
       );
     }
 
-    return body as T;
+    return responseBody as T;
   }
+}
+
+function readRequiredString(args: Record<string, unknown>, name: string): string {
+  const value = args[name];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${name} must be a non-empty string`);
+  }
+  return value;
 }
 
 function readOptionalInteger(
@@ -1780,6 +1819,69 @@ export function createDolibarrAdapter(
             `Dolibarr stockmovement_list returned ${stockmovements.length} movement(s)`,
         };
       }
+      if (name === "dolibarr.thirdparty_create") {
+        rejectUnsupportedArguments(name, args, [
+          "mode", "name", "kind", "tva_intra", "code_client",
+          "email", "phone", "multicurrency_code",
+        ]);
+        const mode = parseWriteMode(args);
+        const payload: Record<string, unknown> = {
+          name: readRequiredString(args, "name"),
+          client: 1,
+        };
+        const kind = readOptionalEnumArgument(args, "kind", ["company", "individual"]);
+        if (kind === "individual") {
+          if (connection.defaultIndividualTypentId === undefined) {
+            throw new WriteError(
+              "MISSING_REQUIRED_CONFIG",
+              { field: "typent_id", erpType: "dolibarr", tool: name },
+              "Set defaultIndividualTypentId on the ErpConnection to create individuals.",
+            );
+          }
+          payload.typent_id = connection.defaultIndividualTypentId;
+        }
+        for (const f of ["tva_intra", "code_client", "email", "phone", "multicurrency_code"]) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        if (mode === "preview") {
+          return {
+            content: { committed: false, doctype: "Dolibarr Thirdparty", resolved: payload },
+            summary: "Preview Dolibarr thirdparty create (not written)",
+          };
+        }
+        const id = await client.createThirdparty(payload, _ctx.signal);
+        const nativeId = String(id);
+        return {
+          content: { committed: true, doctype: "Dolibarr Thirdparty", nativeId, resolved: payload },
+          summary: `Created Dolibarr thirdparty ${nativeId}`,
+        };
+      }
+
+      if (name === "dolibarr.product_create") {
+        rejectUnsupportedArguments(name, args, ["mode", "label", "ref", "type", "price"]);
+        const mode = parseWriteMode(args);
+        const payload: Record<string, unknown> = {
+          label: readRequiredString(args, "label"),
+          ref: readRequiredString(args, "ref"),
+        };
+        const type = readOptionalIntegerArgument(args, "type", { min: 0 });
+        if (type !== undefined) payload.type = type;
+        if (typeof args.price === "number") payload.price = args.price;
+        if (mode === "preview") {
+          return {
+            content: { committed: false, doctype: "Dolibarr Product", resolved: payload },
+            summary: "Preview Dolibarr product create (not written)",
+          };
+        }
+        const id = await client.createProduct(payload, _ctx.signal);
+        const nativeId = String(id);
+        return {
+          content: { committed: true, doctype: "Dolibarr Product", nativeId, resolved: payload },
+          summary: `Created Dolibarr product ${nativeId}`,
+        };
+      }
+
       throw new UnknownToolError("dolibarr", name);
     },
 
