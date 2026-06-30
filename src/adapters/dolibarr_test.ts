@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { UnknownToolError } from "../adapter.ts";
 import { createDolibarrAdapter, DolibarrApiError } from "./dolibarr.ts";
+import { WriteError } from "../write.ts";
 
 interface CapturedFetch {
   readonly url: URL;
@@ -1418,5 +1419,132 @@ Deno.test("createDolibarrAdapter — proposal_get maps billed and unknown propos
     );
   } finally {
     restoreUnknown();
+  }
+});
+
+// ── Fix 2: CREATE_FAILED on malformed Dolibarr create response ────────────────
+
+Deno.test("dolibarr.thirdparty_create — object response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { id: 77 } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.thirdparty_create",
+          { mode: "commit", name: "Acme" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "dolibarr");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_create — null response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: null }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.product_create",
+          { mode: "commit", label: "Widget", ref: "W-1" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "dolibarr");
+  } finally {
+    restore();
+  }
+});
+
+// ── Fix 3: price_base_type:"HT" when price is provided ───────────────────────
+
+Deno.test("dolibarr.product_create — price sends price_base_type:HT in payload", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 5 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.product_create",
+      { mode: "commit", label: "Widget", ref: "W-1", price: 25 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.price, 25);
+    assertEquals(body.price_base_type, "HT");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.product_create — no price means no price_base_type", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 6 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.product_create",
+      { mode: "commit", label: "Widget", ref: "W-2" },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals("price_base_type" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+// ── Fix 4: defaultIndividualTypentId strict validation ───────────────────────
+
+Deno.test("dolibarr.thirdparty_create — individual with defaultIndividualTypentId=0 throws MISSING_REQUIRED_CONFIG", async () => {
+  const restore = mockFetch({ status: 200, body: 1 }, []);
+  try {
+    const adapter = createDolibarrAdapter({
+      erpType: "dolibarr",
+      apiUrl: "https://dolibarr.example.com/api/index.php",
+      apiKey: "dolikey",
+      sandbox: true,
+      defaultIndividualTypentId: 0,
+    });
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.thirdparty_create",
+          { mode: "commit", name: "Doe", kind: "individual" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "MISSING_REQUIRED_CONFIG");
+    assertEquals(err.context.field, "defaultIndividualTypentId");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.thirdparty_create — individual without defaultIndividualTypentId throws MISSING_REQUIRED_CONFIG", async () => {
+  const restore = mockFetch({ status: 200, body: 1 }, []);
+  try {
+    const adapter = createTestAdapter(); // no defaultIndividualTypentId
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.thirdparty_create",
+          { mode: "commit", name: "Doe", kind: "individual" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "MISSING_REQUIRED_CONFIG");
+    assertEquals(err.context.field, "defaultIndividualTypentId");
+  } finally {
+    restore();
   }
 });

@@ -1317,7 +1317,10 @@ Deno.test("mapErpNextSalesInvoice — isRecord guard skips null/primitive items 
 Deno.test("FrappeRestClient.create — POSTs the doc body with content-type", async () => {
   const captured: CapturedFetch[] = [];
   const restore = mockFetch(
-    { status: 200, body: { data: { name: "CUST-0001", customer_name: "Acme" } } },
+    {
+      status: 200,
+      body: { data: { name: "CUST-0001", customer_name: "Acme" } },
+    },
     captured,
   );
   try {
@@ -1331,7 +1334,10 @@ Deno.test("FrappeRestClient.create — POSTs the doc body with content-type", as
     assertEquals(captured[0].url.pathname, "/api/resource/Customer");
     assertEquals(captured[0].headers.get("content-type"), "application/json");
     assertEquals(JSON.parse(captured[0].body as string).customer_name, "Acme");
-    assertEquals((result.content as { nativeId: string }).nativeId, "CUST-0001");
+    assertEquals(
+      (result.content as { nativeId: string }).nativeId,
+      "CUST-0001",
+    );
   } finally {
     restore();
   }
@@ -1348,7 +1354,10 @@ Deno.test("erpnext.customer_create — preview resolves payload without POST", a
       { tenantId: "t", actorSubject: null },
     );
     assertEquals(captured.length, 0); // no HTTP on preview
-    const c = r.content as { committed: boolean; resolved: Record<string, unknown> };
+    const c = r.content as {
+      committed: boolean;
+      resolved: Record<string, unknown>;
+    };
     assertEquals(c.committed, false);
     assertEquals(c.resolved.customer_name, "Acme");
     assertEquals(c.resolved.customer_type, "Company");
@@ -1377,7 +1386,10 @@ Deno.test("erpnext.customer_create — injects optional customer_group default",
       { mode: "commit", customer_name: "Acme" },
       { tenantId: "t", actorSubject: null },
     );
-    assertEquals(JSON.parse(captured[0].body as string).customer_group, "All Customer Groups");
+    assertEquals(
+      JSON.parse(captured[0].body as string).customer_group,
+      "All Customer Groups",
+    );
     assertEquals((r.content as { committed: boolean }).committed, true);
     assertEquals((r.content as { nativeId: string }).nativeId, "CUST-1");
   } finally {
@@ -1395,7 +1407,12 @@ Deno.test("erpnext.item_create — missing defaultItemGroup throws MISSING_REQUI
       () =>
         adapter.callTool(
           "erpnext.item_create",
-          { mode: "commit", item_name: "Widget", item_code: "W-1", stock_uom: "Nos" },
+          {
+            mode: "commit",
+            item_name: "Widget",
+            item_code: "W-1",
+            stock_uom: "Nos",
+          },
           { tenantId: "t", actorSubject: null },
         ),
       WriteError,
@@ -1409,7 +1426,10 @@ Deno.test("erpnext.item_create — missing defaultItemGroup throws MISSING_REQUI
 
 Deno.test("erpnext.item_create — commit sends is_sales_item and defaults", async () => {
   const captured: CapturedFetch[] = [];
-  const restore = mockFetch({ status: 200, body: { data: { name: "ITEM-1" } } }, captured);
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "ITEM-1" } } },
+    captured,
+  );
   try {
     const adapter = createErpnextAdapter({
       erpType: "erpnext",
@@ -1422,7 +1442,12 @@ Deno.test("erpnext.item_create — commit sends is_sales_item and defaults", asy
     });
     await adapter.callTool(
       "erpnext.item_create",
-      { mode: "commit", item_name: "Widget", item_code: "W-1", is_stock_item: 0 },
+      {
+        mode: "commit",
+        item_name: "Widget",
+        item_code: "W-1",
+        is_stock_item: 0,
+      },
       { tenantId: "t", actorSubject: null },
     );
     const body = JSON.parse(captured[0].body as string);
@@ -1431,6 +1456,59 @@ Deno.test("erpnext.item_create — commit sends is_sales_item and defaults", asy
     assertEquals(body.is_sales_item, 1);
     assertEquals(body.item_group, "All Item Groups");
     assertEquals(body.stock_uom, "Nos");
+  } finally {
+    restore();
+  }
+});
+
+// ── Fix 2: CREATE_FAILED on malformed ERPNext create response ─────────────────
+
+Deno.test("erpnext.customer_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.customer_create",
+          { mode: "commit", customer_name: "Acme" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.item_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch(
+    { status: 200, body: { data: { item_code: "W-1" } } },
+    [],
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultItemGroup: "All Item Groups",
+      defaultStockUom: "Nos",
+    });
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.item_create",
+          { mode: "commit", item_name: "Widget", item_code: "W-1" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+    assertEquals(err.context.erpType, "erpnext");
   } finally {
     restore();
   }

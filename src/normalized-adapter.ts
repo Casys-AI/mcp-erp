@@ -46,6 +46,7 @@ import {
   assertFieldSupported,
   parseWriteMode,
   WRITE_CAPABILITIES,
+  WriteError,
 } from "./write.ts";
 import {
   normalizeDolibarrInvoice,
@@ -212,7 +213,11 @@ const NORMALIZED_TOOLS: readonly ErpToolDefinition[] = [
             "Required. 'preview' resolves the payload without writing; 'commit' writes.",
         },
         name: { type: "string", minLength: 1 },
-        kind: { type: "string", enum: ["company", "individual"], default: "company" },
+        kind: {
+          type: "string",
+          enum: ["company", "individual"],
+          default: "company",
+        },
         taxId: { type: "string", minLength: 1 },
         externalRef: { type: "string", minLength: 1 },
         email: { type: "string", minLength: 1 },
@@ -235,7 +240,11 @@ const NORMALIZED_TOOLS: readonly ErpToolDefinition[] = [
         mode: { type: "string", enum: ["preview", "commit"] },
         name: { type: "string", minLength: 1 },
         sku: { type: "string", minLength: 1 },
-        kind: { type: "string", enum: ["product", "service"], default: "product" },
+        kind: {
+          type: "string",
+          enum: ["product", "service"],
+          default: "product",
+        },
         unitPrice: { type: "number", minimum: 0 },
         uom: { type: "string", minLength: 1 },
       },
@@ -350,6 +359,72 @@ function extractDoc(
   return {};
 }
 
+// ─── Write arg validators ─────────────────────────────────────────────────────
+
+/** Require a non-empty string arg. Fast-fail with WriteError(MISSING_REQUIRED_FIELD). */
+function reqString(field: string, value: unknown, erpType: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new WriteError(
+      "MISSING_REQUIRED_FIELD",
+      { field, erpType },
+      `Field '${field}' is required and must be a non-empty string.`,
+    );
+  }
+  return value;
+}
+
+/** Validate optional string arg — if present, must be non-empty. */
+function optString(
+  field: string,
+  value: unknown,
+  erpType: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new WriteError(
+      "INVALID_FIELD",
+      { field, erpType },
+      `Field '${field}' must be a non-empty string when provided.`,
+    );
+  }
+  return value;
+}
+
+/** Validate optional enum arg — if present, must be in the allowed set. */
+function optEnum<T extends string>(
+  field: string,
+  value: unknown,
+  allowed: readonly T[],
+  erpType: string,
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (!allowed.includes(value as T)) {
+    throw new WriteError(
+      "INVALID_FIELD",
+      { field, value, erpType },
+      `Field '${field}' must be one of: ${allowed.join(", ")} when provided.`,
+    );
+  }
+  return value as T;
+}
+
+/** Validate optional non-negative finite number arg. */
+function optNonNegativeNumber(
+  field: string,
+  value: unknown,
+  erpType: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new WriteError(
+      "INVALID_FIELD",
+      { field, erpType },
+      `Field '${field}' must be a finite number >= 0 when provided.`,
+    );
+  }
+  return value;
+}
+
 // ─── NormalizedAdapter ────────────────────────────────────────────────────────
 
 /** Options for constructing a NormalizedAdapter. */
@@ -411,7 +486,17 @@ export class NormalizedAdapter {
 
     // ── capabilities_describe ───────────────────────────────────────────────
     if (name === "erp.capabilities_describe") {
+      // An unconfigured adapter cannot truthfully report capabilities.
+      if (!nativeAdapter) {
+        throw new NormalizedError(
+          "ADAPTER_NOT_CONFIGURED",
+          `No ${erpType} adapter configured for tool ${name}`,
+          { erpType, toolName: name },
+          `Provide a ${erpType} adapter when constructing NormalizedAdapter`,
+        );
+      }
       const caps = WRITE_CAPABILITIES[erpType];
+      // TODO: missingConfiguration requires native capability introspection (deferred)
       return {
         content: {
           erpType,
@@ -650,8 +735,19 @@ export class NormalizedAdapter {
     // ── customer_create ───────────────────────────────────────────────────────
     if (name === "erp.customer_create") {
       const mode = parseWriteMode(args);
-      const cname = typeof args.name === "string" ? args.name : "";
-      const kind = args.kind === "individual" ? "individual" : "company";
+      // Validate all args strictly before any native call (AX: fast-fail).
+      const cname = reqString("name", args.name, erpType);
+      const kind = optEnum(
+        "kind",
+        args.kind,
+        ["company", "individual"] as const,
+        erpType,
+      ) ?? "company";
+      const taxId = optString("taxId", args.taxId, erpType);
+      const email = optString("email", args.email, erpType);
+      const phone = optString("phone", args.phone, erpType);
+      const currency = optString("currency", args.currency, erpType);
+      optString("externalRef", args.externalRef, erpType);
       assertFieldSupported(erpType, "externalRef", args);
 
       if (erpType === "erpnext" && nativeAdapter) {
@@ -660,32 +756,55 @@ export class NormalizedAdapter {
           customer_name: cname,
           customer_type: kind === "individual" ? "Individual" : "Company",
         };
-        if (typeof args.taxId === "string") nativeArgs.tax_id = args.taxId;
-        if (typeof args.email === "string") nativeArgs.email_id = args.email;
-        if (typeof args.phone === "string") nativeArgs.mobile_no = args.phone;
-        if (typeof args.currency === "string") nativeArgs.default_currency = args.currency;
-        const r = await nativeAdapter.callTool("erpnext.customer_create", nativeArgs, ctx);
-        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+        if (taxId !== undefined) nativeArgs.tax_id = taxId;
+        if (email !== undefined) nativeArgs.email_id = email;
+        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (currency !== undefined) nativeArgs.default_currency = currency;
+        const r = await nativeAdapter.callTool(
+          "erpnext.customer_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
       }
 
       if (erpType === "dolibarr" && nativeAdapter) {
+        const externalRef = args.externalRef as string | undefined;
         const nativeArgs: Record<string, unknown> = { mode, name: cname, kind };
-        if (typeof args.taxId === "string") nativeArgs.tva_intra = args.taxId;
-        if (typeof args.externalRef === "string") nativeArgs.code_client = args.externalRef;
-        if (typeof args.email === "string") nativeArgs.email = args.email;
-        if (typeof args.phone === "string") nativeArgs.phone = args.phone;
-        if (typeof args.currency === "string") nativeArgs.multicurrency_code = args.currency;
-        const r = await nativeAdapter.callTool("dolibarr.thirdparty_create", nativeArgs, ctx);
-        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+        if (taxId !== undefined) nativeArgs.tva_intra = taxId;
+        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
+        if (currency !== undefined) nativeArgs.multicurrency_code = currency;
+        const r = await nativeAdapter.callTool(
+          "dolibarr.thirdparty_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
       }
     }
 
     // ── product_create ────────────────────────────────────────────────────────
     if (name === "erp.product_create") {
       const mode = parseWriteMode(args);
-      const pname = typeof args.name === "string" ? args.name : "";
-      const sku = typeof args.sku === "string" ? args.sku : "";
-      const isService = args.kind === "service";
+      // Validate all args strictly before any native call (AX: fast-fail).
+      const pname = reqString("name", args.name, erpType);
+      const sku = reqString("sku", args.sku, erpType);
+      const kind =
+        optEnum("kind", args.kind, ["product", "service"] as const, erpType) ??
+          "product";
+      const unitPrice = optNonNegativeNumber(
+        "unitPrice",
+        args.unitPrice,
+        erpType,
+      );
+      const uom = optString("uom", args.uom, erpType);
+      const isService = kind === "service";
 
       if (erpType === "erpnext" && nativeAdapter) {
         const nativeArgs: Record<string, unknown> = {
@@ -694,10 +813,16 @@ export class NormalizedAdapter {
           item_code: sku,
           is_stock_item: isService ? 0 : 1,
         };
-        if (typeof args.unitPrice === "number") nativeArgs.standard_rate = args.unitPrice;
-        if (typeof args.uom === "string") nativeArgs.stock_uom = args.uom;
-        const r = await nativeAdapter.callTool("erpnext.item_create", nativeArgs, ctx);
-        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+        if (unitPrice !== undefined) nativeArgs.standard_rate = unitPrice;
+        if (uom !== undefined) nativeArgs.stock_uom = uom;
+        const r = await nativeAdapter.callTool(
+          "erpnext.item_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
       }
 
       if (erpType === "dolibarr" && nativeAdapter) {
@@ -707,9 +832,15 @@ export class NormalizedAdapter {
           ref: sku,
           type: isService ? 1 : 0,
         };
-        if (typeof args.unitPrice === "number") nativeArgs.price = args.unitPrice;
-        const r = await nativeAdapter.callTool("dolibarr.product_create", nativeArgs, ctx);
-        return { content: { ...(r.content as Record<string, unknown>), erpType } };
+        if (unitPrice !== undefined) nativeArgs.price = unitPrice;
+        const r = await nativeAdapter.callTool(
+          "dolibarr.product_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
       }
     }
 

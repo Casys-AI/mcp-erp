@@ -1585,7 +1585,9 @@ export function createErpnextAdapter(
           customer_name: readRequiredString(args, "customer_name"),
           customer_type: readOptionalString(args, "customer_type", "Company"),
         };
-        for (const f of ["tax_id", "email_id", "mobile_no", "default_currency"]) {
+        for (
+          const f of ["tax_id", "email_id", "mobile_no", "default_currency"]
+        ) {
           const v = readOptionalStringArgument(args, f);
           if (v !== undefined) payload[f] = v;
         }
@@ -1597,16 +1599,32 @@ export function createErpnextAdapter(
         }
         if (mode === "preview") {
           return {
-            content: { committed: false, doctype: "Customer", resolved: payload },
+            content: {
+              committed: false,
+              doctype: "Customer",
+              resolved: payload,
+            },
             summary: "Preview ERPNext Customer create (not written)",
           };
         }
         const created = await client.create("Customer", payload, {
           signal: _ctx.signal,
         });
-        const nativeId = typeof created.name === "string" ? created.name : "";
+        const nativeId = created.name;
+        if (typeof nativeId !== "string" || nativeId.length === 0) {
+          throw new WriteError(
+            "CREATE_FAILED",
+            { erpType: "erpnext", tool: name, response: created },
+            "ERP returned no document name",
+          );
+        }
         return {
-          content: { committed: true, doctype: "Customer", nativeId, resolved: payload },
+          content: {
+            committed: true,
+            doctype: "Customer",
+            nativeId,
+            resolved: payload,
+          },
           summary: `Created ERPNext Customer ${nativeId}`,
         };
       }
@@ -1650,10 +1668,24 @@ export function createErpnextAdapter(
             summary: "Preview ERPNext Item create (not written)",
           };
         }
-        const created = await client.create("Item", payload, { signal: _ctx.signal });
-        const nativeId = typeof created.name === "string" ? created.name : "";
+        const created = await client.create("Item", payload, {
+          signal: _ctx.signal,
+        });
+        const nativeId = created.name;
+        if (typeof nativeId !== "string" || nativeId.length === 0) {
+          throw new WriteError(
+            "CREATE_FAILED",
+            { erpType: "erpnext", tool: name, response: created },
+            "ERP returned no document name",
+          );
+        }
         return {
-          content: { committed: true, doctype: "Item", nativeId, resolved: payload },
+          content: {
+            committed: true,
+            doctype: "Item",
+            nativeId,
+            resolved: payload,
+          },
           summary: `Created ERPNext Item ${nativeId}`,
         };
       }

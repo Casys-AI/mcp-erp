@@ -698,7 +698,10 @@ class DolibarrRestClient {
   }
 }
 
-function readRequiredString(args: Record<string, unknown>, name: string): string {
+function readRequiredString(
+  args: Record<string, unknown>,
+  name: string,
+): string {
   const value = args[name];
   if (typeof value !== "string" || value.length === 0) {
     throw new TypeError(`${name} must be a non-empty string`);
@@ -812,6 +815,26 @@ function readOptionalIntegerArgument(
     throw new TypeError(`${name} must be >= ${options.min}`);
   }
   return numberValue;
+}
+
+/**
+ * Validate a Dolibarr create response id.
+ * Accepts a positive integer (number or pure-digit string). Rejects
+ * objects, null, zero, and negative values with CREATE_FAILED.
+ */
+function toDolibarrNativeId(id: unknown, tool: string): string {
+  if (typeof id === "number" && Number.isInteger(id) && id > 0) {
+    return String(id);
+  }
+  if (typeof id === "string" && /^\d+$/.test(id)) {
+    const n = Number(id);
+    if (n > 0) return id;
+  }
+  throw new WriteError(
+    "CREATE_FAILED",
+    { erpType: "dolibarr", tool, response: id },
+    "Dolibarr returned no valid numeric id after creation",
+  );
 }
 
 function rejectUnsupportedArguments(
@@ -1821,45 +1844,80 @@ export function createDolibarrAdapter(
       }
       if (name === "dolibarr.thirdparty_create") {
         rejectUnsupportedArguments(name, args, [
-          "mode", "name", "kind", "tva_intra", "code_client",
-          "email", "phone", "multicurrency_code",
+          "mode",
+          "name",
+          "kind",
+          "tva_intra",
+          "code_client",
+          "email",
+          "phone",
+          "multicurrency_code",
         ]);
         const mode = parseWriteMode(args);
         const payload: Record<string, unknown> = {
           name: readRequiredString(args, "name"),
           client: 1,
         };
-        const kind = readOptionalEnumArgument(args, "kind", ["company", "individual"]);
+        const kind = readOptionalEnumArgument(args, "kind", [
+          "company",
+          "individual",
+        ]);
         if (kind === "individual") {
-          if (connection.defaultIndividualTypentId === undefined) {
+          if (
+            !Number.isInteger(connection.defaultIndividualTypentId) ||
+            (connection.defaultIndividualTypentId as number) <= 0
+          ) {
             throw new WriteError(
               "MISSING_REQUIRED_CONFIG",
-              { field: "typent_id", erpType: "dolibarr", tool: name },
-              "Set defaultIndividualTypentId on the ErpConnection to create individuals.",
+              { field: "defaultIndividualTypentId", erpType: "dolibarr" },
+              "Set defaultIndividualTypentId to a positive integer on the ErpConnection to create individuals.",
             );
           }
           payload.typent_id = connection.defaultIndividualTypentId;
         }
-        for (const f of ["tva_intra", "code_client", "email", "phone", "multicurrency_code"]) {
+        for (
+          const f of [
+            "tva_intra",
+            "code_client",
+            "email",
+            "phone",
+            "multicurrency_code",
+          ]
+        ) {
           const v = readOptionalStringArgument(args, f);
           if (v !== undefined) payload[f] = v;
         }
         if (mode === "preview") {
           return {
-            content: { committed: false, doctype: "Dolibarr Thirdparty", resolved: payload },
+            content: {
+              committed: false,
+              doctype: "Dolibarr Thirdparty",
+              resolved: payload,
+            },
             summary: "Preview Dolibarr thirdparty create (not written)",
           };
         }
         const id = await client.createThirdparty(payload, _ctx.signal);
-        const nativeId = String(id);
+        const nativeId = toDolibarrNativeId(id, name);
         return {
-          content: { committed: true, doctype: "Dolibarr Thirdparty", nativeId, resolved: payload },
+          content: {
+            committed: true,
+            doctype: "Dolibarr Thirdparty",
+            nativeId,
+            resolved: payload,
+          },
           summary: `Created Dolibarr thirdparty ${nativeId}`,
         };
       }
 
       if (name === "dolibarr.product_create") {
-        rejectUnsupportedArguments(name, args, ["mode", "label", "ref", "type", "price"]);
+        rejectUnsupportedArguments(name, args, [
+          "mode",
+          "label",
+          "ref",
+          "type",
+          "price",
+        ]);
         const mode = parseWriteMode(args);
         const payload: Record<string, unknown> = {
           label: readRequiredString(args, "label"),
@@ -1867,17 +1925,29 @@ export function createDolibarrAdapter(
         };
         const type = readOptionalIntegerArgument(args, "type", { min: 0 });
         if (type !== undefined) payload.type = type;
-        if (typeof args.price === "number") payload.price = args.price;
+        if (typeof args.price === "number") {
+          payload.price = args.price;
+          payload.price_base_type = "HT";
+        }
         if (mode === "preview") {
           return {
-            content: { committed: false, doctype: "Dolibarr Product", resolved: payload },
+            content: {
+              committed: false,
+              doctype: "Dolibarr Product",
+              resolved: payload,
+            },
             summary: "Preview Dolibarr product create (not written)",
           };
         }
         const id = await client.createProduct(payload, _ctx.signal);
-        const nativeId = String(id);
+        const nativeId = toDolibarrNativeId(id, name);
         return {
-          content: { committed: true, doctype: "Dolibarr Product", nativeId, resolved: payload },
+          content: {
+            committed: true,
+            doctype: "Dolibarr Product",
+            nativeId,
+            resolved: payload,
+          },
           summary: `Created Dolibarr product ${nativeId}`,
         };
       }

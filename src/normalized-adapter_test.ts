@@ -602,14 +602,24 @@ Deno.test("erp.customer_create — erpnext maps fields and commits", async () =>
     const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
     const r = await a.callTool(
       "erp.customer_create",
-      { erpType: "erpnext", mode: "commit", name: "Acme", kind: "individual", taxId: "FR123" },
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        name: "Acme",
+        kind: "individual",
+        taxId: "FR123",
+      },
       { tenantId: "t", actorSubject: null },
     );
     const body = JSON.parse(captured[0].body as string);
     assertEquals(body.customer_name, "Acme");
     assertEquals(body.customer_type, "Individual");
     assertEquals(body.tax_id, "FR123");
-    const c = r.content as { committed: boolean; erpType: string; nativeId: string };
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
     assertEquals(c.committed, true);
     assertEquals(c.erpType, "erpnext");
     assertEquals(c.nativeId, "CUST-9");
@@ -626,7 +636,12 @@ Deno.test("erp.customer_create — externalRef unsupported on erpnext throws UNS
       () =>
         a.callTool(
           "erp.customer_create",
-          { erpType: "erpnext", mode: "preview", name: "Acme", externalRef: "X" },
+          {
+            erpType: "erpnext",
+            mode: "preview",
+            name: "Acme",
+            externalRef: "X",
+          },
           { tenantId: "t", actorSubject: null },
         ),
       WriteError,
@@ -660,7 +675,11 @@ Deno.test("erp.customer_create — dolibarr maps externalRef to code_client", as
     assertEquals(body.tva_intra, "FR456");
     assertEquals(body.email, "a@b.com");
     assertEquals(body.client, 1);
-    const c = r.content as { committed: boolean; erpType: string; nativeId: string };
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
     assertEquals(c.committed, true);
     assertEquals(c.erpType, "dolibarr");
     assertEquals(c.nativeId, "42");
@@ -712,7 +731,14 @@ Deno.test("erp.product_create — dolibarr maps product to type 0", async () => 
     const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
     await a.callTool(
       "erp.product_create",
-      { erpType: "dolibarr", mode: "commit", name: "Widget", sku: "W-1", kind: "product", unitPrice: 9 },
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        name: "Widget",
+        sku: "W-1",
+        kind: "product",
+        unitPrice: 9,
+      },
       { tenantId: "t", actorSubject: null },
     );
     const body = JSON.parse(captured[0].body as string);
@@ -761,4 +787,138 @@ Deno.test("erp.capabilities_describe — reports dolibarr write capabilities", a
   assertEquals(c.supportedTools.includes("erp.product_create"), true);
   assertEquals(c.unsupportedFields.length, 0);
   assertEquals(c.capabilityVersion, "2026-06-30");
+});
+
+// ── Fix 1: strict runtime validation in normalized-adapter ────────────────────
+
+Deno.test("erp.customer_create — invalid kind throws WriteError INVALID_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.customer_create",
+        { erpType: "erpnext", mode: "preview", name: "Acme", kind: "INVALID" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+  assertEquals((err.context as { field: string }).field, "kind");
+});
+
+Deno.test("erp.customer_create — taxId as number throws WriteError INVALID_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.customer_create",
+        { erpType: "erpnext", mode: "preview", name: "Acme", taxId: 123 },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+  assertEquals((err.context as { field: string }).field, "taxId");
+});
+
+Deno.test("erp.customer_create — empty name throws WriteError MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.customer_create",
+        { erpType: "erpnext", mode: "preview", name: "" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "name");
+});
+
+Deno.test("erp.product_create — negative unitPrice throws WriteError INVALID_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.product_create",
+        {
+          erpType: "erpnext",
+          mode: "preview",
+          name: "Widget",
+          sku: "W-1",
+          unitPrice: -1,
+        },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+  assertEquals((err.context as { field: string }).field, "unitPrice");
+});
+
+Deno.test("erp.product_create — string unitPrice throws WriteError INVALID_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.product_create",
+        {
+          erpType: "erpnext",
+          mode: "preview",
+          name: "Widget",
+          sku: "W-1",
+          unitPrice: "9",
+        },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+  assertEquals((err.context as { field: string }).field, "unitPrice");
+});
+
+Deno.test("erp.product_create — empty sku throws WriteError MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.product_create",
+        { erpType: "erpnext", mode: "preview", name: "Widget", sku: "" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "sku");
+});
+
+// ── Fix 5: capabilities_describe with unconfigured adapter ────────────────────
+
+Deno.test("erp.capabilities_describe — erpnext not configured throws ADAPTER_NOT_CONFIGURED", async () => {
+  const a = new NormalizedAdapter({ dolibarr: mockDolibarrAdapter }); // no erpnext
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.capabilities_describe",
+        { erpType: "erpnext" },
+        CTX,
+      ),
+    NormalizedError,
+  );
+  assertEquals(err.code, "ADAPTER_NOT_CONFIGURED");
+});
+
+Deno.test("erp.capabilities_describe — dolibarr not configured throws ADAPTER_NOT_CONFIGURED", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter }); // no dolibarr
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.capabilities_describe",
+        { erpType: "dolibarr" },
+        CTX,
+      ),
+    NormalizedError,
+  );
+  assertEquals(err.code, "ADAPTER_NOT_CONFIGURED");
 });
