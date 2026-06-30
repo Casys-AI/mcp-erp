@@ -22,6 +22,14 @@ export type ErpConnection =
     /** ERPNext API secret (Frappe `api_secret`). */
     apiSecret: string;
     sandbox: boolean;
+    /** Default Item Group injected on Item create (ERPNext requires it). */
+    defaultItemGroup?: string;
+    /** Default stock UOM injected on Item create when `uom` is omitted. */
+    defaultStockUom?: string;
+    /** Optional default Customer Group injected on Customer create. */
+    defaultCustomerGroup?: string;
+    /** Optional default Territory injected on Customer create. */
+    defaultTerritory?: string;
   }
   | {
     erpType: "dolibarr";
@@ -30,6 +38,8 @@ export type ErpConnection =
     /** `DOLAPIKEY` header value. */
     apiKey: string;
     sandbox: boolean;
+    /** typent_id mapped to TE_PRIVATE for `kind: "individual"` (install-specific). */
+    defaultIndividualTypentId?: number;
   };
 
 /** ERP type literal — derived from the connection union. */
