@@ -28,11 +28,11 @@ import { parseWriteMode, WriteError } from "../../../domain/write.ts";
 import { FrappeRestClient, isRecord } from "./client.ts";
 import type { FrappeFilter } from "./client.ts";
 import { callErpnextBusinessPartyTool } from "./handlers/business-parties.ts";
+import { callErpnextCatalogTool } from "./handlers/catalog.ts";
 import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
 import {
   BIN_FIELDS,
   ERPNEXT_TOOLS as TOOLS,
-  ITEM_FIELDS,
   PAYMENT_ENTRY_FIELDS,
   QUOTATION_FIELDS,
   SALES_INVOICE_FIELDS,
@@ -84,19 +84,6 @@ function readOptionalStringArgument(
   if (value === undefined) return undefined;
   if (typeof value !== "string" || value.length === 0) {
     throw new TypeError(`${name} must be a non-empty string`);
-  }
-  return value;
-}
-
-function readOptionalBoolean(
-  args: Record<string, unknown>,
-  name: string,
-  defaultValue: boolean,
-): boolean {
-  const value = args[name];
-  if (value === undefined) return defaultValue;
-  if (typeof value !== "boolean") {
-    throw new TypeError(`${name} must be a boolean`);
   }
   return value;
 }
@@ -233,74 +220,14 @@ export function createErpnextAdapter(
       });
       if (businessParty) return businessParty;
 
-      if (name === "erpnext.item_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(
-          args,
-          "orderBy",
-          "modified desc",
-        );
-        const filters: FrappeFilter[] = [];
-        if (!readOptionalBoolean(args, "includeDisabled", false)) {
-          filters.push(["disabled", "=", 0]);
-        }
-        const itemGroup = readOptionalStringArgument(args, "itemGroup");
-        if (itemGroup) {
-          filters.push(["item_group", "=", itemGroup]);
-        }
-        const isStockItem = args.isStockItem;
-        if (isStockItem !== undefined) {
-          if (typeof isStockItem !== "boolean") {
-            throw new TypeError("isStockItem must be a boolean");
-          }
-          filters.push(["is_stock_item", "=", isStockItem ? 1 : 0]);
-        }
-        const items = await client.list("Item", {
-          fields: ITEM_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, {
-          signal: _ctx.signal,
-        });
-        return {
-          content: {
-            doctype: "Item",
-            data: items,
-            _title: "ERPNext Items",
-            _rowAction: {
-              toolName: "erpnext.item_get",
-              idField: "name",
-              argName: "name",
-            },
-            items,
-            count: items.length,
-            limit,
-            limitStart,
-          },
-          summary: `ERPNext item_list returned ${items.length} item(s)`,
-        };
-      }
-      if (name === "erpnext.item_get") {
-        const item = await client.get(
-          "Item",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            item,
-          },
-          summary: `ERPNext item_get returned ${String(item.name ?? "item")}`,
-        };
-      }
+      const catalog = await callErpnextCatalogTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (catalog) return catalog;
+
       if (name === "erpnext.sales_invoice_list") {
         const limit = readOptionalInteger(args, "limit", 20, {
           min: 1,

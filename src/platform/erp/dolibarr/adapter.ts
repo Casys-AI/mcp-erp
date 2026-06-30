@@ -24,6 +24,7 @@ import {
   DOLIBARR_TOOLS as TOOLS,
 } from "./tools.ts";
 import { callDolibarrBusinessPartyTool } from "./handlers/business-parties.ts";
+import { callDolibarrCatalogTool } from "./handlers/catalog.ts";
 import { callDolibarrDiagnosticsTool } from "./handlers/diagnostics.ts";
 export { DolibarrApiError } from "./client.ts";
 
@@ -587,61 +588,14 @@ export function createDolibarrAdapter(
       });
       if (businessParty) return businessParty;
 
-      if (name === "dolibarr.product_list") {
-        rejectUnsupportedArguments(name, args, ["limit", "page", "type"]);
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const page = readOptionalInteger(args, "page", 0, {
-          min: 0,
-        });
-        const filters: Record<string, string | number> = {};
-        const productType = readOptionalIntegerArgument(args, "type", {
-          min: 0,
-        });
-        if (productType !== undefined) {
-          if (productType !== 0 && productType !== 1) {
-            throw new TypeError("type must be one of: 0, 1");
-          }
-          filters.mode = productType === 0 ? 1 : 2;
-        }
-        const products = await client.listProducts({
-          limit,
-          page,
-          signal: _ctx.signal,
-          filters,
-        });
-        return {
-          content: {
-            doctype: "Dolibarr Product",
-            data: products,
-            _title: "Dolibarr Products",
-            _rowAction: {
-              toolName: "dolibarr.product_get",
-              idField: "id",
-              argName: "id",
-            },
-            products,
-            count: products.length,
-            limit,
-            page,
-          },
-          summary:
-            `Dolibarr product_list returned ${products.length} product(s)`,
-        };
-      }
-      if (name === "dolibarr.product_get") {
-        rejectUnsupportedArguments(name, args, ["id"]);
-        const id = readRequiredInteger(args, "id", { min: 1 });
-        const product = await client.getProduct(id, _ctx.signal);
-        return {
-          content: {
-            product,
-          },
-          summary: `Dolibarr product_get returned ${id}`,
-        };
-      }
+      const catalog = await callDolibarrCatalogTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (catalog) return catalog;
+
       if (name === "dolibarr.invoice_list") {
         rejectUnsupportedArguments(name, args, [
           "limit",

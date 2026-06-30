@@ -37,6 +37,7 @@ import {
 } from "./platform/erp/dolibarr/tools.ts";
 import { callDolibarrDiagnosticsTool } from "./platform/erp/dolibarr/handlers/diagnostics.ts";
 import { callDolibarrBusinessPartyTool } from "./platform/erp/dolibarr/handlers/business-parties.ts";
+import { callDolibarrCatalogTool } from "./platform/erp/dolibarr/handlers/catalog.ts";
 import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 import { FrappeRestClient } from "./platform/erp/erpnext/client.ts";
 import {
@@ -45,6 +46,7 @@ import {
 } from "./platform/erp/erpnext/tools.ts";
 import { callErpnextDiagnosticsTool } from "./platform/erp/erpnext/handlers/diagnostics.ts";
 import { callErpnextBusinessPartyTool } from "./platform/erp/erpnext/handlers/business-parties.ts";
+import { callErpnextCatalogTool } from "./platform/erp/erpnext/handlers/catalog.ts";
 import { ErpToolsClient } from "./platform/mcp/client.ts";
 import { ERP_VIEWERS } from "./platform/viewers/viewers.ts";
 
@@ -420,4 +422,9 @@ Deno.test("architecture slices — provider diagnostics handlers are split by fa
 Deno.test("architecture slices — provider business-party handlers are split by family", () => {
   assertEquals(typeof callErpnextBusinessPartyTool, "function");
   assertEquals(typeof callDolibarrBusinessPartyTool, "function");
+});
+
+Deno.test("architecture slices — provider catalog handlers are split by family", () => {
+  assertEquals(typeof callErpnextCatalogTool, "function");
+  assertEquals(typeof callDolibarrCatalogTool, "function");
 });
