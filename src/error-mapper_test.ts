@@ -4,6 +4,8 @@ import { DolibarrApiError } from "./adapters/dolibarr.ts";
 import { FrappeApiError } from "./adapters/erpnext.ts";
 import { ErpProviderError } from "./connection-provider.ts";
 import { erpToolErrorMapper } from "./error-mapper.ts";
+import { NormalizedError } from "./normalized.ts";
+import { WriteError } from "./write.ts";
 
 Deno.test("erpToolErrorMapper — maps adapter errors to tool errors", () => {
   assertEquals(
@@ -116,4 +118,26 @@ Deno.test("erpToolErrorMapper — leaves unknown errors as JSON-RPC errors", () 
     erpToolErrorMapper(new Error("boom"), "erpnext.customer_list"),
     null,
   );
+});
+
+Deno.test("erpToolErrorMapper — serializes WriteError to structured JSON", () => {
+  const out = erpToolErrorMapper(
+    new WriteError("INVALID_MODE", { mode: "dry" }, "Pass preview or commit."),
+    "erp.customer_create",
+  );
+  assertEquals(typeof out, "string");
+  const parsed = JSON.parse(out as string);
+  assertEquals(parsed.code, "INVALID_MODE");
+  assertEquals(parsed.context.mode, "dry");
+  assertEquals(parsed.recovery, "Pass preview or commit.");
+});
+
+Deno.test("erpToolErrorMapper — serializes NormalizedError to structured JSON", () => {
+  const out = erpToolErrorMapper(
+    new NormalizedError("UNKNOWN_ERP_TYPE", "bad", { erpType: "sap" }, "Use erpnext or dolibarr."),
+    "erp.customer_create",
+  );
+  const parsed = JSON.parse(out as string);
+  assertEquals(parsed.code, "UNKNOWN_ERP_TYPE");
+  assertEquals(parsed.context.erpType, "sap");
 });

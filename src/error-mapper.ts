@@ -13,8 +13,18 @@ import { UnknownToolError } from "./adapter.ts";
 import { DolibarrApiError } from "./adapters/dolibarr.ts";
 import { FrappeApiError } from "./adapters/erpnext.ts";
 import { ErpProviderError } from "./connection-provider.ts";
+import { NormalizedError } from "./normalized.ts";
+import { WriteError } from "./write.ts";
 
 export const erpToolErrorMapper: ToolErrorMapper = (error, toolName) => {
+  if (error instanceof WriteError || error instanceof NormalizedError) {
+    return JSON.stringify({
+      code: redactSensitiveText(error.code),
+      context: redactSensitiveValue(error.context),
+      recovery: redactSensitiveText(error.recovery),
+    });
+  }
+
   if (error instanceof ErpProviderError) {
     return JSON.stringify({
       code: redactSensitiveText(error.code),
