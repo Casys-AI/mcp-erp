@@ -15,15 +15,15 @@
  * Instantiate it manually with `new NormalizedAdapter(adapters)`.
  *
  * ### _list tools
- * `erp.*_list` tools delegate to the native adapter's corresponding list tool
- * and normalize each item inline from the raw array. This avoids N+1 GET
- * round-trips. The normalized list item carries fewer fields than a full
- * `_get` result (no deep mapDolibarr* processing on list items).
- * Return shape: `{ items: NormalizedPayload[], count: number }`.
+ * `erp.*_list` tools delegate through feature handlers to the native adapter's
+ * corresponding list tool and normalize each item from the raw array. This
+ * avoids N+1 GET round-trips. Return shape:
+ * `{ items: NormalizedPayload[], count: number }`.
  *
  * ### _get tools
- * `erp.*_get` tools call the native adapter's get tool, extract the single raw
- * doc from `content`, and run the full normalizer from `normalizers.ts`.
+ * `erp.*_get` tools are implemented in feature handlers that call the native
+ * adapter's get tool, extract the single raw doc from `content`, and run the
+ * full normalizer for that feature.
  *
  * ### Error surface
  * - Unknown `erpType` in args → `NormalizedError(UNKNOWN_ERP_TYPE)`.
@@ -40,13 +40,12 @@ import type {
   ErpToolCallResult,
   ErpToolDefinition,
 } from "./domain/adapter.ts";
-import type { NormalizedPayload } from "./domain/normalized.ts";
-import { invalidNativeIdError, NormalizedError } from "./domain/normalized.ts";
+import { NormalizedError } from "./domain/normalized.ts";
 import { WRITE_CAPABILITIES } from "./domain/write.ts";
+import { BUSINESS_PARTY_TOOLS } from "./features/business-party/business-party.contract.ts";
+import { callBusinessPartyTool } from "./features/business-party/business-party.handler.ts";
 import { CUSTOMER_TOOLS } from "./features/customer/customer.contract.ts";
 import { callCustomerTool } from "./features/customer/customer.handler.ts";
-import { normalizeDolibarrParty } from "./features/customer/mappers/dolibarr.ts";
-import { normalizeErpNextCustomer } from "./features/customer/mappers/erpnext.ts";
 import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
@@ -57,7 +56,6 @@ import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.t
 import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
 import { callSupplierTool } from "./features/supplier/supplier.handler.ts";
-import { normalizeErpNextSupplier } from "./features/supplier/mappers/erpnext.ts";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -67,96 +65,13 @@ const ERP_TYPE_SCHEMA = {
   description: "ERP backend to target.",
 };
 
-const NATIVE_ID_SCHEMA = {
-  type: "string",
-  minLength: 1,
-  description: "Native document identifier (ERPNext `name`, Dolibarr `id`).",
-};
-
-const PARTY_KIND_SCHEMA = {
-  type: "string",
-  enum: ["customer", "supplier"],
-  default: "customer",
-  description: "Whether the party is a customer or supplier.",
-};
-
-const PAGINATION_PROPS = {
-  limit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
-  page: {
-    type: "integer",
-    minimum: 0,
-    default: 0,
-    description: "Page index (Dolibarr) or limitStart offset (ERPNext).",
-  },
-};
-
 const NORMALIZED_TOOLS: readonly ErpToolDefinition[] = [
-  {
-    name: "erp.business_party_list",
-    description:
-      "List business parties (customers or suppliers) in normalized form, across ERPNext or Dolibarr.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        erpType: ERP_TYPE_SCHEMA,
-        partyKind: PARTY_KIND_SCHEMA,
-        ...PAGINATION_PROPS,
-      },
-      required: ["erpType"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-  },
-  {
-    name: "erp.business_party_get",
-    description:
-      "Get one business party (customer or supplier) by native ID in normalized form.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        erpType: ERP_TYPE_SCHEMA,
-        nativeId: NATIVE_ID_SCHEMA,
-        partyKind: PARTY_KIND_SCHEMA,
-      },
-      required: ["erpType", "nativeId"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-  },
-  {
-    name: "erp.catalog_item_list",
-    description:
-      "List catalog items (products / ERPNext Items) in normalized form.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        erpType: ERP_TYPE_SCHEMA,
-        ...PAGINATION_PROPS,
-      },
-      required: ["erpType"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-  },
-  {
-    name: "erp.catalog_item_get",
-    description: "Get one catalog item by native ID in normalized form.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        erpType: ERP_TYPE_SCHEMA,
-        nativeId: NATIVE_ID_SCHEMA,
-      },
-      required: ["erpType", "nativeId"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-  },
+  ...BUSINESS_PARTY_TOOLS,
+  ...PRODUCT_TOOLS,
   ...INVOICE_TOOLS,
   ...SALES_ORDER_TOOLS,
   ...QUOTATION_TOOLS,
   ...CUSTOMER_TOOLS,
-  ...PRODUCT_TOOLS,
   ...SUPPLIER_TOOLS,
   {
     name: "erp.capabilities_describe",
@@ -189,79 +104,6 @@ function resolveErpType(
     );
   }
   return erpType;
-}
-
-/** Resolve nativeId string from args. */
-function resolveNativeId(args: Record<string, unknown>): string {
-  const id = args.nativeId;
-  if (typeof id !== "string" || id.length === 0) {
-    throw new TypeError("nativeId must be a non-empty string");
-  }
-  return id;
-}
-
-/**
- * Resolve partyKind — fast-fail on any value other than undefined,
- * 'customer', or 'supplier' (AX principle 5: no silent fallback).
- */
-function resolvePartyKind(
-  args: Record<string, unknown>,
-): "customer" | "supplier" {
-  const kind = args.partyKind;
-  if (kind === undefined || kind === "customer") return "customer";
-  if (kind === "supplier") return "supplier";
-  throw new NormalizedError(
-    "INVALID_PARTY_KIND",
-    `Invalid partyKind '${String(kind)}' — expected 'customer' or 'supplier'`,
-    { partyKind: kind },
-    "Pass 'customer' or 'supplier' as the partyKind argument, or omit it to default to 'customer'",
-  );
-}
-
-/**
- * Validate that a Dolibarr nativeId is a strict positive decimal integer.
- * `parseInt('42abc', 10)` silently returns 42 — this guard rejects it.
- */
-function parseDolibarrNumericId(nativeId: string): number {
-  if (!/^\d+$/.test(nativeId)) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  const n = Number(nativeId);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  return n;
-}
-
-/** Extract array from native list result content. */
-function extractArray(
-  content: unknown,
-  key: string,
-): Record<string, unknown>[] {
-  if (
-    content && typeof content === "object" &&
-    Array.isArray((content as Record<string, unknown>)[key])
-  ) {
-    return (content as Record<string, unknown>)[key] as Record<
-      string,
-      unknown
-    >[];
-  }
-  return [];
-}
-
-/** Extract single doc from native get result content. */
-function extractDoc(
-  content: unknown,
-  key: string,
-): Record<string, unknown> {
-  if (content && typeof content === "object") {
-    const val = (content as Record<string, unknown>)[key];
-    if (val && typeof val === "object" && !Array.isArray(val)) {
-      return val as Record<string, unknown>;
-    }
-  }
-  return {};
 }
 
 // ─── NormalizedAdapter ────────────────────────────────────────────────────────
@@ -348,80 +190,14 @@ export class NormalizedAdapter {
       };
     }
 
-    // ── business_party_get ──────────────────────────────────────────────────
-    if (name === "erp.business_party_get") {
-      const nativeId = resolveNativeId(args);
-      const partyKind = resolvePartyKind(args);
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativeTool = partyKind === "supplier"
-          ? "erpnext.supplier_get"
-          : "erpnext.customer_get";
-        const r = await nativeAdapter.callTool(
-          nativeTool,
-          { name: nativeId },
-          ctx,
-        );
-        const raw = partyKind === "supplier"
-          ? extractDoc(r.content, "supplier")
-          : extractDoc(r.content, "customer");
-        const payload = partyKind === "supplier"
-          ? normalizeErpNextSupplier(raw)
-          : normalizeErpNextCustomer(raw);
-        return { content: payload };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const id = parseDolibarrNumericId(nativeId);
-        const r = await nativeAdapter.callTool(
-          "dolibarr.thirdparty_get",
-          { id },
-          ctx,
-        );
-        const raw = extractDoc(r.content, "thirdparty");
-        return { content: normalizeDolibarrParty(raw) };
-      }
-    }
-
-    // ── business_party_list ─────────────────────────────────────────────────
-    if (name === "erp.business_party_list") {
-      const partyKind = resolvePartyKind(args);
-      const limit = typeof args.limit === "number" ? args.limit : 20;
-      const page = typeof args.page === "number" ? args.page : 0;
-
-      if (erpType === "erpnext" && nativeAdapter) {
-        const nativeTool = partyKind === "supplier"
-          ? "erpnext.supplier_list"
-          : "erpnext.customer_list";
-        const r = await nativeAdapter.callTool(
-          nativeTool,
-          { limit, limitStart: page * limit },
-          ctx,
-        );
-        const listKey = partyKind === "supplier" ? "suppliers" : "customers";
-        const rawList = extractArray(r.content, listKey);
-        const items: NormalizedPayload[] = rawList.map((raw) =>
-          partyKind === "supplier"
-            ? normalizeErpNextSupplier(raw)
-            : normalizeErpNextCustomer(raw)
-        );
-        return { content: { items, count: items.length } };
-      }
-
-      if (erpType === "dolibarr" && nativeAdapter) {
-        const modeArg = partyKind === "supplier" ? "supplier" : "customer";
-        const r = await nativeAdapter.callTool(
-          "dolibarr.thirdparty_list",
-          { limit, page, mode: modeArg },
-          ctx,
-        );
-        const rawList = extractArray(r.content, "thirdparties");
-        const items: NormalizedPayload[] = rawList.map((raw) =>
-          normalizeDolibarrParty(raw)
-        );
-        return { content: { items, count: items.length } };
-      }
-    }
+    const businessParty = await callBusinessPartyTool({
+      name,
+      args,
+      ctx,
+      erpType,
+      nativeAdapter,
+    });
+    if (businessParty) return businessParty;
 
     const product = await callProductTool({
       name,

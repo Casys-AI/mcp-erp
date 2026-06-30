@@ -5,6 +5,8 @@ import {
   UnknownToolError,
   WRITE_CAPABILITIES,
 } from "./domain/mod.ts";
+import { BUSINESS_PARTY_TOOLS } from "./features/business-party/business-party.contract.ts";
+import { callBusinessPartyTool } from "./features/business-party/business-party.handler.ts";
 import { CUSTOMER_TOOLS } from "./features/customer/customer.contract.ts";
 import {
   mapCustomerCreateToDolibarr,
@@ -87,6 +89,14 @@ Deno.test("architecture slices — customer contract owns normalized customer to
     assertEquals(tool.inputSchema.type, "object");
     assertEquals(tool.inputSchema.additionalProperties, false);
   }
+});
+
+Deno.test("architecture slices — business-party feature owns normalized read tools", () => {
+  assertEquals(
+    BUSINESS_PARTY_TOOLS.map((tool) => tool.name),
+    ["erp.business_party_list", "erp.business_party_get"],
+  );
+  assertEquals(typeof callBusinessPartyTool, "function");
 });
 
 Deno.test("architecture slices — ERPNext customer mapper preserves Contact intent", () => {
@@ -181,7 +191,12 @@ Deno.test("architecture slices — customer feature owns normalized customer han
 Deno.test("architecture slices — product contract and mappers own catalog item writes", () => {
   assertEquals(
     PRODUCT_TOOLS.map((tool) => tool.name),
-    ["erp.product_create", "erp.product_update"],
+    [
+      "erp.catalog_item_list",
+      "erp.catalog_item_get",
+      "erp.product_create",
+      "erp.product_update",
+    ],
   );
 
   assertEquals(

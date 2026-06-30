@@ -55,10 +55,10 @@ The current package has moved past scaffold-only:
 - `src/platform/erp/dolibarr/handlers/writes.ts`: Dolibarr thirdparty, product,
   and supplier write handler family.
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
-- `src/features/customer`, `src/features/product`, and `src/features/supplier`:
-  normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
-  business entities. Their `*.handler.ts` files own the extracted normalized
-  write/read feature handlers.
+- `src/features/business-party`, `src/features/customer`,
+  `src/features/product`, and `src/features/supplier`: normalized tool contracts
+  plus ERPNext/Dolibarr mappers for the first simple business entities. Their
+  `*.handler.ts` files own the extracted normalized read/write feature handlers.
 - `src/features/invoice`, `src/features/sales-order`, and
   `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
   document normalizers and normalized read handlers.
@@ -238,6 +238,9 @@ src/
     write.ts
 
   features/
+    business-party/
+      business-party.contract.ts
+      business-party.handler.ts
     customer/
       customer.contract.ts
       customer.handler.ts
@@ -336,8 +339,9 @@ The target architecture is not complete until these moves are done:
    instead of putting new tool branches back into `adapter.ts`.
 2. Add feature slices for payment and stock movement once their normalized
    contracts are proven.
-3. Continue moving read/list and write handlers from `normalized-adapter.ts`
-   into entity-specific feature handlers as the cross-ERP facade grows.
+3. Keep future normalized behavior in entity-specific feature handlers;
+   `normalized-adapter.ts` should remain a thin dispatcher plus capability
+   reporting.
 4. Keep `deno task check` and `deno task test` green at every tranche.
 
 ## Near-Term Plan

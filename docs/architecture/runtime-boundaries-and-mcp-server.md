@@ -148,6 +148,7 @@ src/
     normalized.ts         # NormalizedPayload / NormalizedError
     write.ts              # write-mode and capability primitives
   features/
+    business-party/       # business-party read contract and handler
     customer/             # customer contract, mappers, normalized handler
     product/              # catalog item contract, mappers, normalized handler
     supplier/             # supplier contract, mappers, normalized handler
