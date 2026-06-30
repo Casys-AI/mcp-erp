@@ -98,6 +98,17 @@ Two precedents and one review fed this decision:
    anyway" — heterogeneity is expressed through tool/capability availability, not
    by falling back to ERP-specific surfaces.
 
+7. **Write semantics — single tool with a required `mode`.** Each write action is
+   ONE tool (`customer_create`) taking a **required** `mode: "preview" | "commit"`
+   (no default — fast-fail if absent). `preview` validates inputs + capabilities
+   and echoes the resolved native payload **without writing**; `commit` performs
+   the write. The result **always** carries `committed: true|false` (never a fake
+   `nativeId` on preview), and `commit` accepts an `idempotencyKey` to dedup
+   retries. Chosen over two tools (surface bloat under capability gating +
+   `previewId` state in stateless) and over `dry_run: boolean` (which lets the
+   LLM forget to flip it and believe it wrote). Trade-off accepted: the single
+   tool is destructive, so the `preview` path does not get a `readOnlyHint`.
+
 ## AX alignment
 
 The model above is chosen to satisfy the project's AX principles:
@@ -113,12 +124,6 @@ The model above is chosen to satisfy the project's AX principles:
 
 ## Open decisions (not yet settled)
 
-- **Write semantics — preview/commit vs `dry_run`.** Codex pushes for two tools
-  (`*_preview` read-only + `*_commit` requiring a `previewId`/`confirm` +
-  `idempotencyKey`) over a single `dry_run: boolean`, because a boolean lets the
-  LLM forget to flip it and believe it wrote. The committed result must be
-  unambiguous (`committed: true|false`, no fake `nativeId` on preview).
-  → to decide.
 - **Field-level normalization.** Core-strict vs core + a few *normalized*
   optional fields. Leaning core-strict with mapped fields (Dolibarr `code_client`
   → normalized `externalRef`/`customerCode`, VAT → `taxId`) and ERPNext-only
