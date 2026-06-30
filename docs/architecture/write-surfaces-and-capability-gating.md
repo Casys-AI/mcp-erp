@@ -1,13 +1,12 @@
 # Write surfaces and capability gating
 
-Status: **architecture decision — foundation accepted 2026-06-30.** Captures the
+Status: **architecture decision — design complete 2026-06-30.** Captures the
 agreed model for moving `@casys/mcp-erp` from a read-only tool surface to write
-(mutation) tools. The foundation below is decided; the "Open decisions" section
-lists what is deliberately still unresolved.
+(mutation) tools, including the concrete MVP tool list. Ready for an
+implementation plan.
 
-This note is the source of truth for *how* writes are shaped. It does not yet
-specify the MVP tool list field-by-field — that follows once the open decisions
-are closed.
+This note is the source of truth for *how* writes are shaped and *what* the first
+iteration ships. The "Deferred" section lists what is intentionally out of scope.
 
 ## Context
 
@@ -122,19 +121,68 @@ The model above is chosen to satisfy the project's AX principles:
 - **Safe defaults**: writes are opt-in and previewable (see open decision on
   preview/commit).
 
-## Open decisions (not yet settled)
+## Field normalization (decided)
 
-- **Field-level normalization.** Core-strict vs core + a few *normalized*
-  optional fields. Leaning core-strict with mapped fields (Dolibarr `code_client`
-  → normalized `externalRef`/`customerCode`, VAT → `taxId`) and ERPNext-only
-  `customer_group`/`territory` pushed to explicit per-tenant connection defaults.
-  Avoid a `native: {}` escape hatch in the default surface (it breaks portability
-  and invites invented fields). → to decide.
-- **Idempotency** on commit (key, or natural-key dedup) to avoid duplicate
-  records on retry. → to decide.
-- **MVP scope.** First writes: create a simple entity (customer + product/item)
-  on both ERPNext and Dolibarr, common fields only, explicit tenant defaults,
-  structured errors on missing config. → to confirm field list.
+**Option (b): common core + a few *normalized* optional fields.** No `native: {}`
+escape hatch in the default surface (it breaks portability and invites invented
+fields). Optional fields are normalized names mapped to each ERP, e.g. Dolibarr
+`code_client` → `externalRef`, `tva_intra` → `taxId`.
+
+**ERP-required fields without a cross-ERP equivalent → per-tenant connection
+defaults.** ERPNext often requires `customer_group` / `territory` (and
+`item_group` for Items) at creation; Dolibarr has no equivalent. These are
+**not** in the normalized schema. They are resolved as explicit defaults on
+`ErpConnection` (e.g. `defaultCustomerGroup`, `defaultTerritory`,
+`defaultItemGroup`) and injected by the ERPNext adapter — never asked of the
+agent. This keeps the normalized schema portable and stops the ERPNext create
+from failing on missing required fields. (Adds fields to `src/connection.ts`.)
+
+## MVP scope (this iteration)
+
+Two write tools, both ERPs, each with the required `mode: "preview" | "commit"`:
+
+**`customer_create`** (business party)
+
+| Normalized field | Required | ERPNext `Customer` | Dolibarr `thirdparty` |
+|---|---|---|---|
+| `name` | yes | `customer_name` | `name`/`nom` |
+| `kind`: `company`\|`individual` | default `company` | `customer_type` | individual flag |
+| `taxId` | no | `tax_id` | `tva_intra` |
+| `externalRef` | no | `name` (prompt-naming) | `code_client` |
+| `email` / `phone` | no | `email_id` / `mobile_no` | `email` / `phone` |
+| `currency` | no | `default_currency` | `currency_code` |
+| `country` | no | (address) | `country_id` |
+
+**`product_create`** (catalog item)
+
+| Normalized field | Required | ERPNext `Item` | Dolibarr `product` |
+|---|---|---|---|
+| `name` | yes | `item_name` | `label` |
+| `kind`: `product`\|`service` | default `product` | `is_stock_item` | `type` (0/1) |
+| `sku` | no | `item_code` | `ref` |
+| `unitPrice` (+ `currency`) | no | `standard_rate` | `price` |
+| `uom` | no | `stock_uom` | (n/a) |
+
+Supporting infrastructure in scope (required by the two tools): the per-adapter
+**capability manifest**, the **per-tenant filtered listing**, the request **body**
+on the HTTP layer (write path), and **structured write errors**.
+`erp.capabilities_describe` ships in this iteration if cheap, otherwise follows —
+it is not required by the two creates.
+
+Idempotency: `commit` accepts an **optional** `idempotencyKey`; no automatic
+natural-key dedup in the MVP. Missing tenant configuration → structured
+`MISSING_REQUIRED_CONFIG` error (code + context + recovery).
+
+The `kind` mapping to Dolibarr (company/individual, product/service) is the most
+likely API-conformance risk and must be verified against the live Dolibarr API
+before merge (Codex VRAI/FAUX/NUANCE pass).
+
+## Deferred (not in this iteration)
+
+- Best-of-breed superset interface (own-ERP phase).
+- Natural-key idempotent dedup on commit.
+- `update` / `submit` / `cancel` / `delete` write tools and lifecycle semantics.
+- `supplier_create` (shows the doctype-vs-role-flag divergence).
 
 ## References
 
