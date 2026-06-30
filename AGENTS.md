@@ -37,7 +37,7 @@ README.md
   `additionalProperties: false` is the default.
 - **Provider adapters stay under `src/platform/erp/<erpType>/`.** Keep raw HTTP
   I/O in `client.ts`, provider payload shapes in `types.ts`, and split large
-  adapters by native tool family when they become too large.
+  adapters by native tool family under `handlers/` when they become too large.
 - **Naming**: tools are `<erpType>.<action>` (e.g. `erpnext.customer_list`).
 
 ## Adding an ERP
@@ -47,7 +47,8 @@ README.md
 2. Create `src/platform/erp/<erpType>/client.ts` for raw ERP I/O,
    `src/platform/erp/<erpType>/tools.ts` for provider tool manifests, and
    `src/platform/erp/<erpType>/adapter.ts` exporting a `create<ErpType>Adapter`
-   factory matching `ErpAdapterFactory<"erpType">`.
+   factory matching `ErpAdapterFactory<"erpType">`. Put extracted native tool
+   families under `src/platform/erp/<erpType>/handlers/`.
 3. Register the factory in `src/registry.ts`.
 4. Add or extend feature mappers/contracts under `src/features/<entity>/` only
    when normalized mapping is proven for the ERP.

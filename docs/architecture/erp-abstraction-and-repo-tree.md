@@ -2,8 +2,8 @@
 
 Status: working architecture note. The mixed hexagonal / feature-slice target is
 validated as the direction. The repository now uses that shape for the
-transverse core, provider I/O, MCP boundary, viewers, and the first normalized
-feature slices; provider adapters still need a family-level split.
+transverse core, provider I/O, MCP boundary, viewers, the first normalized
+feature slices, and the first provider handler families.
 
 ## Goal
 
@@ -24,12 +24,16 @@ The current package has moved past scaffold-only:
   family.
 - `src/platform/erp/erpnext/handlers/diagnostics.ts`: ERPNext diagnostics
   handler family.
+- `src/platform/erp/erpnext/handlers/business-parties.ts`: ERPNext Customer and
+  Supplier read handler family.
 - `src/platform/erp/erpnext/adapter.ts`: provider-native Frappe tools.
 - `src/platform/erp/dolibarr/client.ts`: raw Dolibarr REST client.
 - `src/platform/erp/dolibarr/tools.ts`: Dolibarr provider tool manifest split by
   family.
 - `src/platform/erp/dolibarr/handlers/diagnostics.ts`: Dolibarr diagnostics
   handler family.
+- `src/platform/erp/dolibarr/handlers/business-parties.ts`: Dolibarr thirdparty
+  read handler family.
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
@@ -257,6 +261,7 @@ src/
         tools.ts
         handlers/
           diagnostics.ts
+          business-parties.ts
         adapter.ts
         adapter_test.ts
         types.ts
@@ -265,6 +270,7 @@ src/
         tools.ts
         handlers/
           diagnostics.ts
+          business-parties.ts
         adapter.ts
         adapter_test.ts
         types.ts

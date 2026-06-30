@@ -27,17 +27,16 @@ import {
 import { parseWriteMode, WriteError } from "../../../domain/write.ts";
 import { FrappeRestClient, isRecord } from "./client.ts";
 import type { FrappeFilter } from "./client.ts";
+import { callErpnextBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
 import {
   BIN_FIELDS,
-  CUSTOMER_FIELDS,
   ERPNEXT_TOOLS as TOOLS,
   ITEM_FIELDS,
   PAYMENT_ENTRY_FIELDS,
   QUOTATION_FIELDS,
   SALES_INVOICE_FIELDS,
   SALES_ORDER_FIELDS,
-  SUPPLIER_FIELDS,
 } from "./tools.ts";
 export { FrappeApiError } from "./client.ts";
 
@@ -226,77 +225,14 @@ export function createErpnextAdapter(
       });
       if (diagnostics) return diagnostics;
 
-      if (name === "erpnext.customer_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(
-          args,
-          "orderBy",
-          "modified desc",
-        );
-        const filters: FrappeFilter[] = [];
-        if (!readOptionalBoolean(args, "includeDisabled", false)) {
-          filters.push(["disabled", "=", 0]);
-        }
-        const customerGroup = readOptionalStringArgument(args, "customerGroup");
-        if (customerGroup) {
-          filters.push(["customer_group", "=", customerGroup]);
-        }
-        const territory = readOptionalStringArgument(args, "territory");
-        if (territory) {
-          filters.push(["territory", "=", territory]);
-        }
-        const customers = await client.list("Customer", {
-          fields: CUSTOMER_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, {
-          signal: _ctx.signal,
-        });
-        return {
-          content: {
-            doctype: "Customer",
-            data: customers,
-            _title: "ERPNext Customers",
-            _rowAction: {
-              toolName: "erpnext.customer_get",
-              idField: "name",
-              argName: "name",
-            },
-            customers,
-            count: customers.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext customer_list returned ${customers.length} customer(s)`,
-        };
-      }
-      if (name === "erpnext.customer_get") {
-        const customer = await client.get(
-          "Customer",
-          readRequiredString(
-            args,
-            "name",
-          ),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            customer,
-          },
-          summary: `ERPNext customer_get returned ${
-            String(customer.name ?? "customer")
-          }`,
-        };
-      }
+      const businessParty = await callErpnextBusinessPartyTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (businessParty) return businessParty;
+
       if (name === "erpnext.item_list") {
         const limit = readOptionalInteger(args, "limit", 20, {
           min: 1,
@@ -591,68 +527,6 @@ export function createErpnextAdapter(
           },
           summary: `ERPNext quotation_get returned ${
             String(quotation.name ?? "quotation")
-          }`,
-        };
-      }
-      if (name === "erpnext.supplier_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(args, "orderBy", "modified desc");
-        const filters: FrappeFilter[] = [];
-        if (!readOptionalBoolean(args, "includeDisabled", false)) {
-          filters.push(["disabled", "=", 0]);
-        }
-        const supplierGroup = readOptionalStringArgument(args, "supplierGroup");
-        if (supplierGroup) {
-          filters.push(["supplier_group", "=", supplierGroup]);
-        }
-        const supplierType = readOptionalStringArgument(args, "supplierType");
-        if (supplierType) {
-          filters.push(["supplier_type", "=", supplierType]);
-        }
-        const suppliers = await client.list("Supplier", {
-          fields: SUPPLIER_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, { signal: _ctx.signal });
-        return {
-          content: {
-            doctype: "Supplier",
-            data: suppliers,
-            _title: "ERPNext Suppliers",
-            _rowAction: {
-              toolName: "erpnext.supplier_get",
-              idField: "name",
-              argName: "name",
-            },
-            suppliers,
-            count: suppliers.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext supplier_list returned ${suppliers.length} supplier(s)`,
-        };
-      }
-      if (name === "erpnext.supplier_get") {
-        const supplier = await client.get(
-          "Supplier",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            supplier,
-          },
-          summary: `ERPNext supplier_get returned ${
-            String(supplier.name ?? "supplier")
           }`,
         };
       }

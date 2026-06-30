@@ -23,6 +23,7 @@ import {
   DOLIBARR_PROPOSAL_STATUS_CODES,
   DOLIBARR_TOOLS as TOOLS,
 } from "./tools.ts";
+import { callDolibarrBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callDolibarrDiagnosticsTool } from "./handlers/diagnostics.ts";
 export { DolibarrApiError } from "./client.ts";
 
@@ -199,16 +200,6 @@ function sqlFilterDateComparison(
   value: string,
 ): string {
   return `(${field}:${operator}:${sqlFilterStringLiteral(value, field)})`;
-}
-
-function sqlFilterLike(
-  field: string,
-  value: string,
-  argumentName: string,
-): string {
-  return `(${field}:like:${
-    sqlFilterStringLiteral(`%${value}%`, argumentName)
-  })`;
 }
 
 function sqlFilterStringLiteral(value: string, argumentName: string): string {
@@ -588,75 +579,14 @@ export function createDolibarrAdapter(
       });
       if (diagnostics) return diagnostics;
 
-      if (name === "dolibarr.thirdparty_list") {
-        rejectUnsupportedArguments(name, args, [
-          "limit",
-          "page",
-          "mode",
-          "nameLike",
-        ]);
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const page = readOptionalInteger(args, "page", 0, {
-          min: 0,
-        });
-        const filters: Record<string, string | number> = {};
-        const mode = readOptionalStringArgument(args, "mode");
-        if (mode !== undefined) {
-          const modeMap: Record<string, number> = {
-            customer: 1,
-            supplier: 4,
-            prospect: 2,
-          };
-          if (!(mode in modeMap)) {
-            throw new TypeError(
-              `mode must be one of: customer, supplier, prospect`,
-            );
-          }
-          filters.mode = modeMap[mode];
-        }
-        const nameLike = readOptionalStringArgument(args, "nameLike");
-        if (nameLike !== undefined) {
-          addSqlFilter(filters, sqlFilterLike("t.nom", nameLike, "nameLike"));
-        }
-        const thirdparties = await client.listThirdparties({
-          limit,
-          page,
-          signal: _ctx.signal,
-          filters,
-        });
-        return {
-          content: {
-            doctype: "Dolibarr Thirdparty",
-            data: thirdparties,
-            _title: "Dolibarr Thirdparties",
-            _rowAction: {
-              toolName: "dolibarr.thirdparty_get",
-              idField: "id",
-              argName: "id",
-            },
-            thirdparties,
-            count: thirdparties.length,
-            limit,
-            page,
-          },
-          summary:
-            `Dolibarr thirdparty_list returned ${thirdparties.length} thirdpartie(s)`,
-        };
-      }
-      if (name === "dolibarr.thirdparty_get") {
-        rejectUnsupportedArguments(name, args, ["id"]);
-        const id = readRequiredInteger(args, "id", { min: 1 });
-        const thirdparty = await client.getThirdparty(id, _ctx.signal);
-        return {
-          content: {
-            thirdparty,
-          },
-          summary: `Dolibarr thirdparty_get returned ${id}`,
-        };
-      }
+      const businessParty = await callDolibarrBusinessPartyTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (businessParty) return businessParty;
+
       if (name === "dolibarr.product_list") {
         rejectUnsupportedArguments(name, args, ["limit", "page", "type"]);
         const limit = readOptionalInteger(args, "limit", 20, {
