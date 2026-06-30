@@ -1,9 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import {
-  createErpnextAdapter,
-  FrappeApiError,
-  mapErpNextSalesInvoice,
-} from "./adapter.ts";
+import { createErpnextAdapter, FrappeApiError } from "./adapter.ts";
+import { mapErpNextSalesInvoice } from "./handlers/documents.ts";
 import { UnknownToolError } from "../../../domain/adapter.ts";
 import { WriteError } from "../../../domain/write.ts";
 

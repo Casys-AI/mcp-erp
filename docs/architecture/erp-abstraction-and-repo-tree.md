@@ -28,6 +28,8 @@ The current package has moved past scaffold-only:
   Supplier read handler family.
 - `src/platform/erp/erpnext/handlers/catalog.ts`: ERPNext Item read handler
   family.
+- `src/platform/erp/erpnext/handlers/documents.ts`: ERPNext Sales Invoice, Sales
+  Order, and Quotation read handler family.
 - `src/platform/erp/erpnext/adapter.ts`: provider-native Frappe tools.
 - `src/platform/erp/dolibarr/client.ts`: raw Dolibarr REST client.
 - `src/platform/erp/dolibarr/tools.ts`: Dolibarr provider tool manifest split by
@@ -38,6 +40,8 @@ The current package has moved past scaffold-only:
   read handler family.
 - `src/platform/erp/dolibarr/handlers/catalog.ts`: Dolibarr product read handler
   family.
+- `src/platform/erp/dolibarr/handlers/documents.ts`: Dolibarr invoice, order,
+  and proposal read handler family.
 - `src/platform/erp/dolibarr/adapter.ts`: provider-native Dolibarr tools.
 - `src/features/customer`, `src/features/product`, and `src/features/supplier`:
   normalized tool contracts plus ERPNext/Dolibarr mappers for the first simple
@@ -267,6 +271,7 @@ src/
           diagnostics.ts
           business-parties.ts
           catalog.ts
+          documents.ts
         adapter.ts
         adapter_test.ts
         types.ts
@@ -277,6 +282,7 @@ src/
           diagnostics.ts
           business-parties.ts
           catalog.ts
+          documents.ts
         adapter.ts
         adapter_test.ts
         types.ts

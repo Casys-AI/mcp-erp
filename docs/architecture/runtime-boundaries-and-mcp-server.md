@@ -161,6 +161,7 @@ src/
       erpnext/handlers/diagnostics.ts
       erpnext/handlers/business-parties.ts
       erpnext/handlers/catalog.ts
+      erpnext/handlers/documents.ts
       erpnext/adapter.ts  # Frappe REST provider tools
       erpnext/adapter_test.ts
       erpnext/types.ts    # ERPNext native payload shapes
@@ -169,6 +170,7 @@ src/
       dolibarr/handlers/diagnostics.ts
       dolibarr/handlers/business-parties.ts
       dolibarr/handlers/catalog.ts
+      dolibarr/handlers/documents.ts
       dolibarr/adapter.ts # Dolibarr REST provider tools
       dolibarr/adapter_test.ts
       dolibarr/types.ts   # Dolibarr native payload shapes

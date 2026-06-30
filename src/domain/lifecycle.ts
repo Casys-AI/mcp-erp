@@ -13,7 +13,6 @@
  */
 
 import type { ErpLifecycleState } from "./normalized.ts";
-import { parseIntegerLike } from "../platform/erp/dolibarr/adapter.ts";
 
 // ─── ERPNext per-doctype tables ───────────────────────────────────────────────
 
@@ -126,6 +125,13 @@ const DOLIBARR_PROPOSAL: Record<number, ErpLifecycleState> = {
 
 /** Dolibarr document kind discriminant. */
 export type DolibarrDocKind = "invoice" | "order" | "proposal";
+
+export function parseIntegerLike(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
 
 /**
  * Map a Dolibarr document statut (plus optional paye flag for invoices) to a

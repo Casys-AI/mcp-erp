@@ -25,18 +25,16 @@ import {
   UnknownToolError,
 } from "../../../domain/adapter.ts";
 import { parseWriteMode, WriteError } from "../../../domain/write.ts";
-import { FrappeRestClient, isRecord } from "./client.ts";
+import { FrappeRestClient } from "./client.ts";
 import type { FrappeFilter } from "./client.ts";
 import { callErpnextBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callErpnextCatalogTool } from "./handlers/catalog.ts";
+import { callErpnextDocumentTool } from "./handlers/documents.ts";
 import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
 import {
   BIN_FIELDS,
   ERPNEXT_TOOLS as TOOLS,
   PAYMENT_ENTRY_FIELDS,
-  QUOTATION_FIELDS,
-  SALES_INVOICE_FIELDS,
-  SALES_ORDER_FIELDS,
 } from "./tools.ts";
 export { FrappeApiError } from "./client.ts";
 
@@ -99,80 +97,6 @@ function readRequiredString(
   return value;
 }
 
-/**
- * Derive a human-readable status from Frappe's numeric `docstatus` field,
- * used as fallback when the document-level `status` field is absent or empty.
- *
- *   0 → Draft  |  1 → Submitted  |  2 → Cancelled
- */
-function mapDocstatus(docstatus: unknown): string {
-  if (docstatus === 0 || docstatus === "0") return "Draft";
-  if (docstatus === 1 || docstatus === "1") return "Submitted";
-  if (docstatus === 2 || docstatus === "2") return "Cancelled";
-  return "";
-}
-
-/**
- * Map an ERPNext native Sales Invoice payload to the invoice-viewer `data`
- * contract, which is shared with the Dolibarr adapter (`mapDolibarrInvoice`).
- *
- * Target fields: name, status, customer/party_name, posting_date, due_date,
- * currency, grand_total, net_total, total_taxes_and_charges,
- * items[]{item_name, qty, rate, amount}.
- *
- * The full native payload is preserved by `sales_invoice_get` beside `data`.
- *
- * @internal — not a stable public API.
- */
-export function mapErpNextSalesInvoice(
-  native: Record<string, unknown>,
-): Record<string, unknown> {
-  const rawItems = Array.isArray(native.items) ? native.items : [];
-  const items = rawItems
-    .filter((raw) => isRecord(raw))
-    .map((raw) => {
-      const item = raw as Record<string, unknown>;
-      const mapped: Record<string, unknown> = {
-        item_name:
-          typeof item.item_name === "string" && item.item_name.length > 0
-            ? item.item_name
-            : (typeof item.item_code === "string" ? item.item_code : ""),
-      };
-      if (item.qty !== undefined) mapped.qty = item.qty;
-      if (typeof item.rate === "number") mapped.rate = item.rate;
-      if (typeof item.amount === "number") mapped.amount = item.amount;
-      return mapped;
-    });
-
-  // Prefer the document-level `status` string (e.g. "Unpaid", "Paid");
-  // fall back to docstatus integer when status is absent or empty.
-  const explicitStatus = typeof native.status === "string" ? native.status : "";
-  const status = explicitStatus || mapDocstatus(native.docstatus);
-
-  const data: Record<string, unknown> = {
-    name: typeof native.name === "string" ? native.name : "",
-    status,
-    items,
-  };
-
-  // Party — prefer customer (customer-facing invoice), fallback to party_name
-  if (native.customer !== undefined) data.customer = native.customer;
-  else if (native.party_name !== undefined) data.party_name = native.party_name;
-
-  if (native.posting_date !== undefined) {
-    data.posting_date = native.posting_date;
-  }
-  if (native.due_date !== undefined) data.due_date = native.due_date;
-  if (native.currency !== undefined) data.currency = native.currency;
-  if (native.grand_total !== undefined) data.grand_total = native.grand_total;
-  if (native.net_total !== undefined) data.net_total = native.net_total;
-  if (native.total_taxes_and_charges !== undefined) {
-    data.total_taxes_and_charges = native.total_taxes_and_charges;
-  }
-
-  return data;
-}
-
 export function getErpnextToolDefinitions(): ErpToolDefinition[] {
   return TOOLS.map((tool) => ({
     ...tool,
@@ -228,235 +152,14 @@ export function createErpnextAdapter(
       });
       if (catalog) return catalog;
 
-      if (name === "erpnext.sales_invoice_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(
-          args,
-          "orderBy",
-          "modified desc",
-        );
-        const filters: FrappeFilter[] = [];
-        const customer = readOptionalStringArgument(args, "customer");
-        if (customer) {
-          filters.push(["customer", "=", customer]);
-        }
-        const status = readOptionalStringArgument(args, "status");
-        if (status) {
-          filters.push(["status", "=", status]);
-        }
-        const dateFrom = readOptionalStringArgument(args, "dateFrom");
-        if (dateFrom) {
-          filters.push(["posting_date", ">=", dateFrom]);
-        }
-        const dateTo = readOptionalStringArgument(args, "dateTo");
-        if (dateTo) {
-          filters.push(["posting_date", "<=", dateTo]);
-        }
-        const salesInvoices = await client.list("Sales Invoice", {
-          fields: SALES_INVOICE_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, {
-          signal: _ctx.signal,
-        });
-        return {
-          content: {
-            doctype: "Sales Invoice",
-            data: salesInvoices,
-            _title: "ERPNext Sales Invoices",
-            _rowAction: {
-              toolName: "erpnext.sales_invoice_get",
-              idField: "name",
-              argName: "name",
-            },
-            salesInvoices,
-            count: salesInvoices.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext sales_invoice_list returned ${salesInvoices.length} invoice(s)`,
-        };
-      }
-      if (name === "erpnext.sales_invoice_get") {
-        const salesInvoice = await client.get(
-          "Sales Invoice",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            // Normalized invoice-viewer contract (provider-agnostic fields).
-            // Breaking change vs pre-Step10: `data` is now the mapped invoice,
-            // not the raw native. The raw native is preserved in `salesInvoice`.
-            data: mapErpNextSalesInvoice(salesInvoice),
-            salesInvoice,
-          },
-          summary: `ERPNext sales_invoice_get returned ${
-            String(salesInvoice.name ?? "sales invoice")
-          }`,
-        };
-      }
-      if (name === "erpnext.sales_order_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(
-          args,
-          "orderBy",
-          "modified desc",
-        );
-        const filters: FrappeFilter[] = [];
-        const customer = readOptionalStringArgument(args, "customer");
-        if (customer) {
-          filters.push(["customer", "=", customer]);
-        }
-        const status = readOptionalStringArgument(args, "status");
-        if (status) {
-          filters.push(["status", "=", status]);
-        }
-        const dateFrom = readOptionalStringArgument(args, "dateFrom");
-        if (dateFrom) {
-          filters.push(["transaction_date", ">=", dateFrom]);
-        }
-        const dateTo = readOptionalStringArgument(args, "dateTo");
-        if (dateTo) {
-          filters.push(["transaction_date", "<=", dateTo]);
-        }
-        const salesOrders = await client.list("Sales Order", {
-          fields: SALES_ORDER_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, {
-          signal: _ctx.signal,
-        });
-        return {
-          content: {
-            doctype: "Sales Order",
-            data: salesOrders,
-            _title: "ERPNext Sales Orders",
-            _rowAction: {
-              toolName: "erpnext.sales_order_get",
-              idField: "name",
-              argName: "name",
-            },
-            salesOrders,
-            count: salesOrders.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext sales_order_list returned ${salesOrders.length} order(s)`,
-        };
-      }
-      if (name === "erpnext.sales_order_get") {
-        const salesOrder = await client.get(
-          "Sales Order",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            data: salesOrder,
-            salesOrder,
-          },
-          summary: `ERPNext sales_order_get returned ${
-            String(salesOrder.name ?? "sales order")
-          }`,
-        };
-      }
-      if (name === "erpnext.quotation_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(
-          args,
-          "orderBy",
-          "modified desc",
-        );
-        const filters: FrappeFilter[] = [];
-        const partyName = readOptionalStringArgument(args, "partyName");
-        if (partyName) {
-          filters.push(["party_name", "=", partyName]);
-        }
-        const quotationTo = readOptionalStringArgument(args, "quotationTo");
-        if (quotationTo) {
-          filters.push(["quotation_to", "=", quotationTo]);
-        }
-        const status = readOptionalStringArgument(args, "status");
-        if (status) {
-          filters.push(["status", "=", status]);
-        }
-        const dateFrom = readOptionalStringArgument(args, "dateFrom");
-        if (dateFrom) {
-          filters.push(["transaction_date", ">=", dateFrom]);
-        }
-        const dateTo = readOptionalStringArgument(args, "dateTo");
-        if (dateTo) {
-          filters.push(["transaction_date", "<=", dateTo]);
-        }
-        const quotations = await client.list("Quotation", {
-          fields: QUOTATION_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, {
-          signal: _ctx.signal,
-        });
-        return {
-          content: {
-            doctype: "Quotation",
-            data: quotations,
-            _title: "ERPNext Quotations",
-            _rowAction: {
-              toolName: "erpnext.quotation_get",
-              idField: "name",
-              argName: "name",
-            },
-            quotations,
-            count: quotations.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext quotation_list returned ${quotations.length} quotation(s)`,
-        };
-      }
-      if (name === "erpnext.quotation_get") {
-        const quotation = await client.get(
-          "Quotation",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            data: quotation,
-            quotation,
-          },
-          summary: `ERPNext quotation_get returned ${
-            String(quotation.name ?? "quotation")
-          }`,
-        };
-      }
+      const document = await callErpnextDocumentTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (document) return document;
+
       if (name === "erpnext.payment_entry_list") {
         const limit = readOptionalInteger(args, "limit", 20, {
           min: 1,

@@ -4,7 +4,7 @@ import type {
   NormalizedView,
 } from "../../../domain/normalized.ts";
 import { assertNativeId } from "../../../domain/normalized.ts";
-import { mapDolibarrInvoice } from "../../../platform/erp/dolibarr/adapter.ts";
+import { mapDolibarrInvoice } from "../../../platform/erp/dolibarr/handlers/documents.ts";
 import type { DolibarrInvoice } from "../../../platform/erp/dolibarr/types.ts";
 
 export function normalizeDolibarrInvoice(
