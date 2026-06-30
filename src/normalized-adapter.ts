@@ -254,6 +254,105 @@ const NORMALIZED_TOOLS: readonly ErpToolDefinition[] = [
     annotations: { readOnlyHint: false, destructiveHint: false },
   },
   {
+    name: "erp.customer_update",
+    description:
+      "Update a customer (business party) fields in normalized form. mode 'preview' validates without writing; 'commit' writes. Only provided optional fields are sent (partial update).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: {
+          type: "string",
+          enum: ["preview", "commit"],
+          description:
+            "Required. 'preview' resolves the payload without writing; 'commit' writes.",
+        },
+        nativeId: NATIVE_ID_SCHEMA,
+        name: { type: "string", minLength: 1 },
+        taxId: { type: "string", minLength: 1 },
+        externalRef: { type: "string", minLength: 1 },
+        email: { type: "string", minLength: 1 },
+        phone: { type: "string", minLength: 1 },
+        currency: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "nativeId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.product_update",
+    description:
+      "Update a catalog item (product/service) fields in normalized form. mode 'preview' validates without writing; 'commit' writes. Only provided optional fields are sent (partial update). SKU (item_code) is immutable and cannot be changed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: { type: "string", enum: ["preview", "commit"] },
+        nativeId: NATIVE_ID_SCHEMA,
+        name: { type: "string", minLength: 1 },
+        unitPrice: { type: "number", minimum: 0 },
+        uom: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "nativeId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.supplier_create",
+    description:
+      "Create a supplier (business party) in normalized form. mode 'preview' validates without writing; 'commit' writes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: {
+          type: "string",
+          enum: ["preview", "commit"],
+          description:
+            "Required. 'preview' resolves the payload without writing; 'commit' writes.",
+        },
+        name: { type: "string", minLength: 1 },
+        taxId: { type: "string", minLength: 1 },
+        externalRef: { type: "string", minLength: 1 },
+        email: { type: "string", minLength: 1 },
+        phone: { type: "string", minLength: 1 },
+        currency: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "name"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.supplier_update",
+    description:
+      "Update a supplier (business party) fields in normalized form. mode 'preview' validates without writing; 'commit' writes. Only provided optional fields are sent (partial update).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: {
+          type: "string",
+          enum: ["preview", "commit"],
+          description:
+            "Required. 'preview' resolves the payload without writing; 'commit' writes.",
+        },
+        nativeId: NATIVE_ID_SCHEMA,
+        name: { type: "string", minLength: 1 },
+        taxId: { type: "string", minLength: 1 },
+        externalRef: { type: "string", minLength: 1 },
+        email: { type: "string", minLength: 1 },
+        phone: { type: "string", minLength: 1 },
+        currency: { type: "string", minLength: 1 },
+      },
+      required: ["erpType", "mode", "nativeId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
     name: "erp.capabilities_describe",
     description:
       "Describe the write capabilities of the target ERP: supported tools and which normalized fields are unsupported.",
@@ -835,6 +934,196 @@ export class NormalizedAdapter {
         if (unitPrice !== undefined) nativeArgs.price = unitPrice;
         const r = await nativeAdapter.callTool(
           "dolibarr.product_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+    }
+
+    // ── customer_update ───────────────────────────────────────────────────────
+    if (name === "erp.customer_update") {
+      const mode = parseWriteMode(args);
+      const nativeId = reqString("nativeId", args.nativeId, erpType);
+      const cname = optString("name", args.name, erpType);
+      const taxId = optString("taxId", args.taxId, erpType);
+      optString("externalRef", args.externalRef, erpType);
+      assertFieldSupported(erpType, "externalRef", args);
+      const email = optString("email", args.email, erpType);
+      const phone = optString("phone", args.phone, erpType);
+      const currency = optString("currency", args.currency, erpType);
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
+        if (cname !== undefined) nativeArgs.customer_name = cname;
+        if (taxId !== undefined) nativeArgs.tax_id = taxId;
+        if (email !== undefined) nativeArgs.email_id = email;
+        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (currency !== undefined) nativeArgs.default_currency = currency;
+        const r = await nativeAdapter.callTool(
+          "erpnext.customer_update",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const externalRef = args.externalRef as string | undefined;
+        const numericId = parseDolibarrNumericId(nativeId);
+        const nativeArgs: Record<string, unknown> = { mode, id: numericId };
+        if (cname !== undefined) nativeArgs.name = cname;
+        if (taxId !== undefined) nativeArgs.tva_intra = taxId;
+        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
+        if (currency !== undefined) nativeArgs.multicurrency_code = currency;
+        const r = await nativeAdapter.callTool(
+          "dolibarr.thirdparty_update",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+    }
+
+    // ── product_update ────────────────────────────────────────────────────────
+    if (name === "erp.product_update") {
+      const mode = parseWriteMode(args);
+      const nativeId = reqString("nativeId", args.nativeId, erpType);
+      const pname = optString("name", args.name, erpType);
+      const unitPrice = optNonNegativeNumber(
+        "unitPrice",
+        args.unitPrice,
+        erpType,
+      );
+      const uom = optString("uom", args.uom, erpType);
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
+        if (pname !== undefined) nativeArgs.item_name = pname;
+        if (unitPrice !== undefined) nativeArgs.standard_rate = unitPrice;
+        if (uom !== undefined) nativeArgs.stock_uom = uom;
+        const r = await nativeAdapter.callTool(
+          "erpnext.item_update",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const numericId = parseDolibarrNumericId(nativeId);
+        const nativeArgs: Record<string, unknown> = { mode, id: numericId };
+        if (pname !== undefined) nativeArgs.label = pname;
+        if (unitPrice !== undefined) nativeArgs.price = unitPrice;
+        // uom intentionally not forwarded — Dolibarr product_update does not support it
+        const r = await nativeAdapter.callTool(
+          "dolibarr.product_update",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+    }
+
+    // ── supplier_create ───────────────────────────────────────────────────────
+    if (name === "erp.supplier_create") {
+      const mode = parseWriteMode(args);
+      const sname = reqString("name", args.name, erpType);
+      const taxId = optString("taxId", args.taxId, erpType);
+      optString("externalRef", args.externalRef, erpType);
+      assertFieldSupported(erpType, "externalRef", args);
+      const email = optString("email", args.email, erpType);
+      const phone = optString("phone", args.phone, erpType);
+      const currency = optString("currency", args.currency, erpType);
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = {
+          mode,
+          supplier_name: sname,
+        };
+        if (taxId !== undefined) nativeArgs.tax_id = taxId;
+        const r = await nativeAdapter.callTool(
+          "erpnext.supplier_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const externalRef = args.externalRef as string | undefined;
+        const nativeArgs: Record<string, unknown> = { mode, name: sname };
+        if (taxId !== undefined) nativeArgs.tva_intra = taxId;
+        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
+        if (currency !== undefined) nativeArgs.multicurrency_code = currency;
+        const r = await nativeAdapter.callTool(
+          "dolibarr.supplier_create",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+    }
+
+    // ── supplier_update ───────────────────────────────────────────────────────
+    if (name === "erp.supplier_update") {
+      const mode = parseWriteMode(args);
+      const nativeId = reqString("nativeId", args.nativeId, erpType);
+      const sname = optString("name", args.name, erpType);
+      const taxId = optString("taxId", args.taxId, erpType);
+      optString("externalRef", args.externalRef, erpType);
+      assertFieldSupported(erpType, "externalRef", args);
+      const email = optString("email", args.email, erpType);
+      const phone = optString("phone", args.phone, erpType);
+      const currency = optString("currency", args.currency, erpType);
+
+      if (erpType === "erpnext" && nativeAdapter) {
+        const nativeArgs: Record<string, unknown> = { mode, name: nativeId };
+        if (sname !== undefined) nativeArgs.supplier_name = sname;
+        if (taxId !== undefined) nativeArgs.tax_id = taxId;
+        if (email !== undefined) nativeArgs.email_id = email;
+        if (phone !== undefined) nativeArgs.mobile_no = phone;
+        if (currency !== undefined) nativeArgs.default_currency = currency;
+        const r = await nativeAdapter.callTool(
+          "erpnext.supplier_update",
+          nativeArgs,
+          ctx,
+        );
+        return {
+          content: { ...(r.content as Record<string, unknown>), erpType },
+        };
+      }
+
+      if (erpType === "dolibarr" && nativeAdapter) {
+        const externalRef = args.externalRef as string | undefined;
+        const numericId = parseDolibarrNumericId(nativeId);
+        const nativeArgs: Record<string, unknown> = { mode, id: numericId };
+        if (sname !== undefined) nativeArgs.name = sname;
+        if (taxId !== undefined) nativeArgs.tva_intra = taxId;
+        if (externalRef !== undefined) nativeArgs.code_client = externalRef;
+        if (email !== undefined) nativeArgs.email = email;
+        if (phone !== undefined) nativeArgs.phone = phone;
+        if (currency !== undefined) nativeArgs.multicurrency_code = currency;
+        const r = await nativeAdapter.callTool(
+          "dolibarr.supplier_update",
           nativeArgs,
           ctx,
         );

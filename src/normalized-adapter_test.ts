@@ -237,7 +237,7 @@ const adapter = new NormalizedAdapter({
 
 // ─── tools() ─────────────────────────────────────────────────────────────────
 
-Deno.test("NormalizedAdapter.tools — exposes exactly 10 erp.* tools", () => {
+Deno.test("NormalizedAdapter.tools — exposes exactly 14 erp.* tools", () => {
   const tools = adapter.tools();
   const names = tools.map((t) => t.name).sort();
   assertEquals(names, [
@@ -247,16 +247,22 @@ Deno.test("NormalizedAdapter.tools — exposes exactly 10 erp.* tools", () => {
     "erp.catalog_item_get",
     "erp.catalog_item_list",
     "erp.customer_create",
+    "erp.customer_update",
     "erp.product_create",
+    "erp.product_update",
     "erp.quotation_get",
     "erp.sales_invoice_get",
     "erp.sales_order_get",
+    "erp.supplier_create",
+    "erp.supplier_update",
   ]);
 });
 
 Deno.test("NormalizedAdapter.tools — read tools are readOnly", () => {
   const readTools = adapter.tools().filter((t) =>
-    !t.name.endsWith("_create") && t.name !== "erp.capabilities_describe"
+    !t.name.endsWith("_create") &&
+    !t.name.endsWith("_update") &&
+    t.name !== "erp.capabilities_describe"
   );
   for (const tool of readTools) {
     assertEquals(
@@ -268,7 +274,9 @@ Deno.test("NormalizedAdapter.tools — read tools are readOnly", () => {
 });
 
 Deno.test("NormalizedAdapter.tools — write tools are not readOnly", () => {
-  const writeTools = adapter.tools().filter((t) => t.name.endsWith("_create"));
+  const writeTools = adapter.tools().filter(
+    (t) => t.name.endsWith("_create") || t.name.endsWith("_update"),
+  );
   for (const tool of writeTools) {
     assertEquals(
       tool.annotations?.readOnlyHint === true,
@@ -921,4 +929,542 @@ Deno.test("erp.capabilities_describe — dolibarr not configured throws ADAPTER_
     NormalizedError,
   );
   assertEquals(err.code, "ADAPTER_NOT_CONFIGURED");
+});
+
+// ─── Task D: erp.customer_update ─────────────────────────────────────────────
+
+Deno.test("erp.customer_update — erpnext maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "CUST-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.customer_update",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        nativeId: "CUST-001",
+        name: "Acme Updated",
+        taxId: "FR999",
+        email: "new@acme.com",
+        phone: "+33600000000",
+        currency: "USD",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Customer/CUST-001",
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer_name, "Acme Updated");
+    assertEquals(body.tax_id, "FR999");
+    assertEquals(body.email_id, "new@acme.com");
+    assertEquals(body.mobile_no, "+33600000000");
+    assertEquals(body.default_currency, "USD");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "CUST-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_update — erpnext preview does not write", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.customer_update",
+      {
+        erpType: "erpnext",
+        mode: "preview",
+        nativeId: "CUST-001",
+        name: "Acme",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean; erpType: string };
+    assertEquals(c.committed, false);
+    assertEquals(c.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_update — externalRef on erpnext throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.customer_update",
+          {
+            erpType: "erpnext",
+            mode: "preview",
+            nativeId: "CUST-001",
+            externalRef: "X",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_update — dolibarr maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 42 } }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.customer_update",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        nativeId: "42",
+        name: "Client Updated",
+        taxId: "FR456",
+        externalRef: "EXT-42",
+        email: "client@example.com",
+        currency: "EUR",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties/42");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Client Updated");
+    assertEquals(body.tva_intra, "FR456");
+    assertEquals(body.code_client, "EXT-42");
+    assertEquals(body.email, "client@example.com");
+    assertEquals(body.multicurrency_code, "EUR");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "42");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.customer_update — missing nativeId throws MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.customer_update",
+        { erpType: "erpnext", mode: "preview" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "nativeId");
+});
+
+// ─── Task D: erp.product_update ──────────────────────────────────────────────
+
+Deno.test("erp.product_update — erpnext maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "ITEM-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.product_update",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        nativeId: "ITEM-001",
+        name: "Widget Pro v2",
+        unitPrice: 49.99,
+        uom: "Nos",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/resource/Item/ITEM-001");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.item_name, "Widget Pro v2");
+    assertEquals(body.standard_rate, 49.99);
+    assertEquals(body.stock_uom, "Nos");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "ITEM-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.product_update — dolibarr maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 3 } }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.product_update",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        nativeId: "3",
+        name: "Widget Pro v2",
+        unitPrice: 19.5,
+        uom: "pcs", // ignored on Dolibarr
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/products/3");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.label, "Widget Pro v2");
+    assertEquals(body.price, 19.5);
+    assertEquals(body.price_base_type, "HT");
+    // uom is NOT forwarded to Dolibarr
+    assertEquals(body.stock_uom, undefined);
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "3");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.product_update — missing nativeId throws MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.product_update",
+        { erpType: "erpnext", mode: "preview" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "nativeId");
+});
+
+Deno.test("erp.product_update — erpnext preview does not write", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.product_update",
+      {
+        erpType: "erpnext",
+        mode: "preview",
+        nativeId: "ITEM-001",
+        unitPrice: 10,
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean };
+    assertEquals(c.committed, false);
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task D: erp.supplier_create ─────────────────────────────────────────────
+
+Deno.test("erp.supplier_create — erpnext maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_create",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        name: "Parts Co",
+        taxId: "FR111",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.supplier_name, "Parts Co");
+    assertEquals(body.tax_id, "FR111");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "SUPP-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_create — externalRef on erpnext throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.supplier_create",
+          {
+            erpType: "erpnext",
+            mode: "preview",
+            name: "Parts Co",
+            externalRef: "X",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_create — dolibarr maps fournisseur:1 and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 55 }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        name: "Fournisseur SA",
+        taxId: "FR222",
+        externalRef: "EXT-SUPP",
+        email: "supp@example.com",
+        phone: "+33700000000",
+        currency: "EUR",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Fournisseur SA");
+    assertEquals(body.fournisseur, 1);
+    assertEquals(body.tva_intra, "FR222");
+    assertEquals(body.code_client, "EXT-SUPP");
+    assertEquals(body.email, "supp@example.com");
+    assertEquals(body.multicurrency_code, "EUR");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "55");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_create — missing name throws MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.supplier_create",
+        { erpType: "erpnext", mode: "preview" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "name");
+});
+
+Deno.test("erp.supplier_create — dolibarr preview does not write", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 0 }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_create",
+      { erpType: "dolibarr", mode: "preview", name: "Fournisseur SA" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean };
+    assertEquals(c.committed, false);
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task D: erp.supplier_update ─────────────────────────────────────────────
+
+Deno.test("erp.supplier_update — erpnext maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SUPP-001" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_update",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        nativeId: "SUPP-001",
+        name: "Parts Co Updated",
+        taxId: "FR333",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/resource/Supplier/SUPP-001");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.supplier_name, "Parts Co Updated");
+    assertEquals(body.tax_id, "FR333");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "SUPP-001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_update — externalRef on erpnext throws UNSUPPORTED_FIELD", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.supplier_update",
+          {
+            erpType: "erpnext",
+            mode: "preview",
+            nativeId: "SUPP-001",
+            externalRef: "X",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "UNSUPPORTED_FIELD");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_update — dolibarr maps fields and commits", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: { id: 42 } }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_update",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        nativeId: "42",
+        name: "Fournisseur Updated",
+        taxId: "FR444",
+        externalRef: "EXT-F42",
+        currency: "GBP",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "PUT");
+    assertEquals(captured[0].url.pathname, "/api/index.php/thirdparties/42");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.name, "Fournisseur Updated");
+    assertEquals(body.tva_intra, "FR444");
+    assertEquals(body.code_client, "EXT-F42");
+    assertEquals(body.multicurrency_code, "GBP");
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "42");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.supplier_update — missing nativeId throws MISSING_REQUIRED_FIELD", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.supplier_update",
+        { erpType: "erpnext", mode: "preview" },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+  assertEquals((err.context as { field: string }).field, "nativeId");
+});
+
+Deno.test("erp.supplier_update — erpnext preview does not write", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.supplier_update",
+      { erpType: "erpnext", mode: "preview", nativeId: "SUPP-001", name: "X" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean };
+    assertEquals(c.committed, false);
+  } finally {
+    restore();
+  }
 });
