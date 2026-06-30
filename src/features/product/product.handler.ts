@@ -5,12 +5,18 @@ import type {
 } from "../../domain/adapter.ts";
 import type { ErpType } from "../../domain/connection.ts";
 import type { NormalizedPayload } from "../../domain/normalized.ts";
-import { invalidNativeIdError } from "../../domain/normalized.ts";
+import { parseWriteMode } from "../../domain/write.ts";
 import {
-  assertFieldSupported,
-  parseWriteMode,
-  WriteError,
-} from "../../domain/write.ts";
+  assertFieldsSupported,
+  extractArray,
+  extractDoc,
+  optEnum,
+  optNonNegativeNumber,
+  optString,
+  parseDolibarrNumericId,
+  reqString,
+  resolveNativeId,
+} from "../shared/handler-utils.ts";
 import {
   mapProductCreateToDolibarr,
   mapProductUpdateToDolibarr,
@@ -194,122 +200,4 @@ export async function callProductTool(
   }
 
   return undefined;
-}
-
-function resolveNativeId(args: Record<string, unknown>): string {
-  const id = args.nativeId;
-  if (typeof id !== "string" || id.length === 0) {
-    throw new TypeError("nativeId must be a non-empty string");
-  }
-  return id;
-}
-
-function parseDolibarrNumericId(nativeId: string): number {
-  if (!/^\d+$/.test(nativeId)) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  const n = Number(nativeId);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  return n;
-}
-
-function extractArray(
-  content: unknown,
-  key: string,
-): Record<string, unknown>[] {
-  if (
-    content && typeof content === "object" &&
-    Array.isArray((content as Record<string, unknown>)[key])
-  ) {
-    return (content as Record<string, unknown>)[key] as Record<
-      string,
-      unknown
-    >[];
-  }
-  return [];
-}
-
-function extractDoc(
-  content: unknown,
-  key: string,
-): Record<string, unknown> {
-  if (content && typeof content === "object") {
-    const val = (content as Record<string, unknown>)[key];
-    if (val && typeof val === "object" && !Array.isArray(val)) {
-      return val as Record<string, unknown>;
-    }
-  }
-  return {};
-}
-
-function reqString(field: string, value: unknown, erpType: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "MISSING_REQUIRED_FIELD",
-      { field, erpType },
-      `Field '${field}' is required and must be a non-empty string.`,
-    );
-  }
-  return value;
-}
-
-function optString(
-  field: string,
-  value: unknown,
-  erpType: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a non-empty string when provided.`,
-    );
-  }
-  return value;
-}
-
-function optEnum<T extends string>(
-  field: string,
-  value: unknown,
-  allowed: readonly T[],
-  erpType: string,
-): T | undefined {
-  if (value === undefined) return undefined;
-  if (!allowed.includes(value as T)) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, value, erpType },
-      `Field '${field}' must be one of: ${allowed.join(", ")} when provided.`,
-    );
-  }
-  return value as T;
-}
-
-function optNonNegativeNumber(
-  field: string,
-  value: unknown,
-  erpType: string,
-): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a finite number >= 0 when provided.`,
-    );
-  }
-  return value;
-}
-
-function assertFieldsSupported(
-  erpType: ErpType,
-  args: Record<string, unknown>,
-  fieldNames: readonly string[],
-): void {
-  for (const field of fieldNames) {
-    assertFieldSupported(erpType, field, args);
-  }
 }

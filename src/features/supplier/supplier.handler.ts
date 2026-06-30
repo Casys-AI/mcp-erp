@@ -4,12 +4,13 @@ import type {
   ErpToolCallResult,
 } from "../../domain/adapter.ts";
 import type { ErpType } from "../../domain/connection.ts";
-import { invalidNativeIdError } from "../../domain/normalized.ts";
+import { parseWriteMode } from "../../domain/write.ts";
 import {
-  assertFieldSupported,
-  parseWriteMode,
-  WriteError,
-} from "../../domain/write.ts";
+  assertFieldsSupported,
+  optString,
+  parseDolibarrNumericId,
+  reqString,
+} from "../shared/handler-utils.ts";
 import {
   mapSupplierCreateToDolibarr,
   mapSupplierUpdateToDolibarr,
@@ -35,7 +36,7 @@ export async function callSupplierTool(
     const sname = reqString("name", args.name, erpType);
     const taxId = optString("taxId", args.taxId, erpType);
     const externalRef = optString("externalRef", args.externalRef, erpType);
-    assertFieldSupported(erpType, "externalRef", args);
+    assertFieldsSupported(erpType, args, ["externalRef"]);
     const email = optString("email", args.email, erpType);
     const phone = optString("phone", args.phone, erpType);
     const currency = optString("currency", args.currency, erpType);
@@ -82,7 +83,7 @@ export async function callSupplierTool(
     const sname = optString("name", args.name, erpType);
     const taxId = optString("taxId", args.taxId, erpType);
     const externalRef = optString("externalRef", args.externalRef, erpType);
-    assertFieldSupported(erpType, "externalRef", args);
+    assertFieldsSupported(erpType, args, ["externalRef"]);
     const email = optString("email", args.email, erpType);
     const phone = optString("phone", args.phone, erpType);
     const currency = optString("currency", args.currency, erpType);
@@ -129,42 +130,4 @@ export async function callSupplierTool(
   }
 
   return undefined;
-}
-
-function reqString(field: string, value: unknown, erpType: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "MISSING_REQUIRED_FIELD",
-      { field, erpType },
-      `Field '${field}' is required and must be a non-empty string.`,
-    );
-  }
-  return value;
-}
-
-function optString(
-  field: string,
-  value: unknown,
-  erpType: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a non-empty string when provided.`,
-    );
-  }
-  return value;
-}
-
-function parseDolibarrNumericId(nativeId: string): number {
-  if (!/^\d+$/.test(nativeId)) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  const n = Number(nativeId);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  return n;
 }

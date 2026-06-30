@@ -5,12 +5,15 @@ import type {
 } from "../../domain/adapter.ts";
 import type { ErpType } from "../../domain/connection.ts";
 import type { NormalizedPayload } from "../../domain/normalized.ts";
-import {
-  invalidNativeIdError,
-  NormalizedError,
-} from "../../domain/normalized.ts";
+import { NormalizedError } from "../../domain/normalized.ts";
 import { normalizeDolibarrParty } from "../customer/mappers/dolibarr.ts";
 import { normalizeErpNextCustomer } from "../customer/mappers/erpnext.ts";
+import {
+  extractArray,
+  extractDoc,
+  parseDolibarrNumericId,
+  resolveNativeId,
+} from "../shared/handler-utils.ts";
 import { normalizeErpNextSupplier } from "../supplier/mappers/erpnext.ts";
 
 export async function callBusinessPartyTool(
@@ -104,14 +107,6 @@ export async function callBusinessPartyTool(
   return undefined;
 }
 
-function resolveNativeId(args: Record<string, unknown>): string {
-  const id = args.nativeId;
-  if (typeof id !== "string" || id.length === 0) {
-    throw new TypeError("nativeId must be a non-empty string");
-  }
-  return id;
-}
-
 function resolvePartyKind(
   args: Record<string, unknown>,
 ): "customer" | "supplier" {
@@ -124,44 +119,4 @@ function resolvePartyKind(
     { partyKind: kind },
     "Pass 'customer' or 'supplier' as the partyKind argument, or omit it to default to 'customer'",
   );
-}
-
-function parseDolibarrNumericId(nativeId: string): number {
-  if (!/^\d+$/.test(nativeId)) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  const n = Number(nativeId);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  return n;
-}
-
-function extractArray(
-  content: unknown,
-  key: string,
-): Record<string, unknown>[] {
-  if (
-    content && typeof content === "object" &&
-    Array.isArray((content as Record<string, unknown>)[key])
-  ) {
-    return (content as Record<string, unknown>)[key] as Record<
-      string,
-      unknown
-    >[];
-  }
-  return [];
-}
-
-function extractDoc(
-  content: unknown,
-  key: string,
-): Record<string, unknown> {
-  if (content && typeof content === "object") {
-    const val = (content as Record<string, unknown>)[key];
-    if (val && typeof val === "object" && !Array.isArray(val)) {
-      return val as Record<string, unknown>;
-    }
-  }
-  return {};
 }

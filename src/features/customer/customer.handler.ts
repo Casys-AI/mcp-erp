@@ -4,12 +4,14 @@ import type {
   ErpToolCallResult,
 } from "../../domain/adapter.ts";
 import type { ErpType } from "../../domain/connection.ts";
-import { invalidNativeIdError } from "../../domain/normalized.ts";
+import { parseWriteMode } from "../../domain/write.ts";
 import {
-  assertFieldSupported,
-  parseWriteMode,
-  WriteError,
-} from "../../domain/write.ts";
+  assertFieldsSupported,
+  optEnum,
+  optString,
+  parseDolibarrNumericId,
+  reqString,
+} from "../shared/handler-utils.ts";
 import {
   mapCustomerCreateToDolibarr,
   mapCustomerUpdateToDolibarr,
@@ -44,7 +46,7 @@ export async function callCustomerTool(
     const phone = optString("phone", args.phone, erpType);
     const currency = optString("currency", args.currency, erpType);
     const externalRef = optString("externalRef", args.externalRef, erpType);
-    assertFieldSupported(erpType, "externalRef", args);
+    assertFieldsSupported(erpType, args, ["externalRef"]);
     const customerInput = {
       mode,
       name: cname,
@@ -89,7 +91,7 @@ export async function callCustomerTool(
     const cname = optString("name", args.name, erpType);
     const taxId = optString("taxId", args.taxId, erpType);
     const externalRef = optString("externalRef", args.externalRef, erpType);
-    assertFieldSupported(erpType, "externalRef", args);
+    assertFieldsSupported(erpType, args, ["externalRef"]);
     const email = optString("email", args.email, erpType);
     const phone = optString("phone", args.phone, erpType);
     const currency = optString("currency", args.currency, erpType);
@@ -136,59 +138,4 @@ export async function callCustomerTool(
   }
 
   return undefined;
-}
-
-function reqString(field: string, value: unknown, erpType: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "MISSING_REQUIRED_FIELD",
-      { field, erpType },
-      `Field '${field}' is required and must be a non-empty string.`,
-    );
-  }
-  return value;
-}
-
-function optString(
-  field: string,
-  value: unknown,
-  erpType: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, erpType },
-      `Field '${field}' must be a non-empty string when provided.`,
-    );
-  }
-  return value;
-}
-
-function optEnum<T extends string>(
-  field: string,
-  value: unknown,
-  allowed: readonly T[],
-  erpType: string,
-): T | undefined {
-  if (value === undefined) return undefined;
-  if (!allowed.includes(value as T)) {
-    throw new WriteError(
-      "INVALID_FIELD",
-      { field, value, erpType },
-      `Field '${field}' must be one of: ${allowed.join(", ")} when provided.`,
-    );
-  }
-  return value as T;
-}
-
-function parseDolibarrNumericId(nativeId: string): number {
-  if (!/^\d+$/.test(nativeId)) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  const n = Number(nativeId);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw invalidNativeIdError(nativeId, "dolibarr");
-  }
-  return n;
 }

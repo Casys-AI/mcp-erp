@@ -155,6 +155,7 @@ src/
     invoice/              # sales invoice contract, normalizers, handler
     sales-order/          # sales order contract, normalizers, handler
     quotation/            # quotation/proposal contract, normalizers, handler
+    shared/               # internal normalized handler helpers
   platform/
     erp/
       erpnext/client.ts   # raw Frappe REST I/O

@@ -62,6 +62,9 @@ The current package has moved past scaffold-only:
 - `src/features/invoice`, `src/features/sales-order`, and
   `src/features/quotation`: normalized read contracts plus ERPNext/Dolibarr
   document normalizers and normalized read handlers.
+- `src/features/shared/handler-utils.ts`: small internal helpers shared by
+  normalized feature handlers; kept out of `domain/` because they are handler
+  plumbing, not ERP core contracts.
 - `src/platform/viewers/viewers.ts` + `src/ui/dist`: first MCP Apps viewer
   registration and built viewer HTML, ported from `mcp-erpnext`.
 - `server.ts`: local/dev stdio or HTTP MCP server using `@casys/mcp-server`.
@@ -283,6 +286,8 @@ src/
       mappers/
         erpnext.ts
         dolibarr.ts
+    shared/
+      handler-utils.ts
 
   platform/
     erp/
