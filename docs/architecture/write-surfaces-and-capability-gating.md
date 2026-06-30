@@ -75,6 +75,10 @@ Two precedents and one review fed this decision:
      (`src/client.ts:122`) registers a **static** tool list and only resolves the
      adapter per tenant **at call time**. To honor the primary mechanism, the
      **listing** must become tenant-resolved as well, not just the handlers.
+   - *Cache note:* because one endpoint serves different lists per token,
+     `tools/list` must be cached **per tenant/auth**: `cacheScope: private` + short
+     TTL (2026-07-28 `ttlMs`/`cacheScope`), `Vary: Authorization` at the HTTP/gateway
+     layer, and a `capabilityVersion` to invalidate. Never cache it shared.
 
 4. **`erp.capabilities_describe` read-only tool** (optionally mirrored as an
    `erp://tenant/capabilities` resource). With the listing already filtered, the
@@ -102,11 +106,14 @@ Two precedents and one review fed this decision:
    (no default — fast-fail if absent). `preview` validates inputs + capabilities
    and echoes the resolved native payload **without writing**; `commit` performs
    the write. The result **always** carries `committed: true|false` (never a fake
-   `nativeId` on preview), and `commit` accepts an `idempotencyKey` to dedup
-   retries. Chosen over two tools (surface bloat under capability gating +
-   `previewId` state in stateless) and over `dry_run: boolean` (which lets the
-   LLM forget to flip it and believe it wrote). Trade-off accepted: the single
-   tool is destructive, so the `preview` path does not get a `readOnlyHint`.
+   `nativeId` on preview). Chosen over two tools (surface bloat under capability
+   gating + `previewId` state in stateless) and over `dry_run: boolean` (which
+   lets the LLM forget to flip it and believe it wrote). Trade-off accepted: the
+   single tool is destructive (`readOnlyHint: false` even for `mode: "preview"`,
+   so a host may still gate/confirm it) — hence the mandatory `committed: false`
+   on preview as the unambiguous signal. **No `idempotencyKey` in the MVP**:
+   neither ERPNext nor Dolibarr offers native idempotency, so accepting a key we
+   do not honor would mislead the agent (deferred — see below).
 
 ## AX alignment
 
@@ -118,8 +125,8 @@ The model above is chosen to satisfy the project's AX principles:
   HTTP write.
 - **Explicit over implicit / no silent failures**: an unsupported request fails
   loudly and structured; it is never silently ignored.
-- **Safe defaults**: writes are opt-in and previewable (see open decision on
-  preview/commit).
+- **Safe defaults**: writes are opt-in and previewable via the mandatory
+  `mode: "preview" | "commit"`.
 
 ## Field normalization (decided)
 
@@ -128,14 +135,27 @@ escape hatch in the default surface (it breaks portability and invites invented
 fields). Optional fields are normalized names mapped to each ERP, e.g. Dolibarr
 `code_client` → `externalRef`, `tva_intra` → `taxId`.
 
+**A normalized field may be capability-gated per ERP.** When a field maps cleanly
+on one ERP but not the other, it is a *supported field* on the first and absent
+on the second — surfaced through `capabilities_describe.supportedFields`, not
+through a divergent schema. Example: `externalRef` maps to Dolibarr `code_client`
+but ERPNext has **no reliable external-ref field** (the `name` is `autoname`-driven
+by Frappe settings), so `externalRef` is **unsupported on ERPNext** by default
+(would require a tenant-configured custom field).
+
 **ERP-required fields without a cross-ERP equivalent → per-tenant connection
-defaults.** ERPNext often requires `customer_group` / `territory` (and
-`item_group` for Items) at creation; Dolibarr has no equivalent. These are
-**not** in the normalized schema. They are resolved as explicit defaults on
-`ErpConnection` (e.g. `defaultCustomerGroup`, `defaultTerritory`,
-`defaultItemGroup`) and injected by the ERPNext adapter — never asked of the
-agent. This keeps the normalized schema portable and stops the ERPNext create
-from failing on missing required fields. (Adds fields to `src/connection.ts`.)
+defaults.** These are **not** in the normalized schema; they are explicit
+defaults on `ErpConnection`, injected by the ERPNext adapter, never asked of the
+agent. Two distinct cases (verified against the ERPNext DocTypes):
+- *Actually required* — ERPNext `Item` requires `item_group` and `stock_uom`. So
+  `defaultItemGroup` is **mandatory** tenant config, and `defaultStockUom` is
+  required whenever the agent omits `uom`. Missing → `MISSING_REQUIRED_CONFIG`.
+- *Not required, but useful* — ERPNext `Customer` only requires `customer_name`
+  and `customer_type`; `customer_group` / `territory` are **not** `reqd`. So
+  `defaultCustomerGroup` / `defaultTerritory` are **optional** tenant defaults —
+  the customer create must **not** be blocked on them.
+
+(Adds fields to `src/connection.ts`.)
 
 ## MVP scope (this iteration)
 
@@ -145,44 +165,62 @@ Two write tools, both ERPs, each with the required `mode: "preview" | "commit"`:
 
 | Normalized field | Required | ERPNext `Customer` | Dolibarr `thirdparty` |
 |---|---|---|---|
-| `name` | yes | `customer_name` | `name`/`nom` |
-| `kind`: `company`\|`individual` | default `company` | `customer_type` | individual flag |
+| `name` | yes | `customer_name` | `name` |
+| `kind`: `company`\|`individual` | default `company` | `customer_type` (`Company`\|`Individual`) | `client: 1` + `typent_id` (`TE_PRIVATE` for individual) |
 | `taxId` | no | `tax_id` | `tva_intra` |
-| `externalRef` | no | `name` (prompt-naming) | `code_client` |
-| `email` / `phone` | no | `email_id` / `mobile_no` | `email` / `phone` |
-| `currency` | no | `default_currency` | `currency_code` |
+| `externalRef` | no | *unsupported* (autoname) | `code_client` |
+| `email` / `phone` | no | `email_id` / `mobile_no` | `email`* / `phone` |
+| `currency` | no | `default_currency` | `multicurrency_code` |
 | `country` | no | (address) | `country_id` |
+
+\* Dolibarr `email` becomes required if `SOCIETE_EMAIL_MANDATORY` is enabled on
+the tenant → surfaced via `capabilities_describe` / `MISSING_REQUIRED_FIELD`.
+ERPNext `customer_type` also accepts `Partnership`, intentionally out of the
+normalized `kind` surface for now.
 
 **`product_create`** (catalog item)
 
 | Normalized field | Required | ERPNext `Item` | Dolibarr `product` |
 |---|---|---|---|
 | `name` | yes | `item_name` | `label` |
-| `kind`: `product`\|`service` | default `product` | `is_stock_item` | `type` (0/1) |
-| `sku` | no | `item_code` | `ref` |
-| `unitPrice` (+ `currency`) | no | `standard_rate` | `price` |
-| `uom` | no | `stock_uom` | (n/a) |
+| `sku` | **yes** | `item_code` | `ref` |
+| `kind`: `product`\|`service` | default `product` | `is_stock_item` (+ `is_sales_item: 1`) | `type` (`0`=product, `1`=service) |
+| `unitPrice` | no | `standard_rate` | `price` (+ `price_base_type: "HT"`) |
+| `uom` | no | `stock_uom` (else `defaultStockUom`) | (n/a) |
+
+`kind: service` means a **non-stock sellable item** (`is_stock_item: 0` +
+`is_sales_item: 1`) — not "any non-stock item". `unitPrice` is in the tenant's
+base currency; **no `currency` field** on `product_create` (neither ERP carries
+it on the item/product create itself). Dolibarr product type is sent as `type`
+on the REST input (it persists as `fk_product_type`).
 
 Supporting infrastructure in scope (required by the two tools): the per-adapter
 **capability manifest**, the **per-tenant filtered listing**, the request **body**
-on the HTTP layer (write path), and **structured write errors**.
-`erp.capabilities_describe` ships in this iteration if cheap, otherwise follows —
-it is not required by the two creates.
+on the HTTP layer (write path), **structured write errors**, and
+**`erp.capabilities_describe`** — promoted to in-scope, because the conditional
+fields above (Dolibarr `email` mandatory flag, ERPNext `externalRef` unsupported,
+tenant defaults) make it the mechanism that keeps the surface non-frustrating for
+an agent.
 
-Idempotency: `commit` accepts an **optional** `idempotencyKey`; no automatic
-natural-key dedup in the MVP. Missing tenant configuration → structured
-`MISSING_REQUIRED_CONFIG` error (code + context + recovery).
+Missing/insufficient tenant configuration → structured `MISSING_REQUIRED_CONFIG`;
+a field unsupported by the tenant's ERP → `UNSUPPORTED_FIELD`; both carry
+`code` + `context` + `recovery`.
 
-The `kind` mapping to Dolibarr (company/individual, product/service) is the most
-likely API-conformance risk and must be verified against the live Dolibarr API
-before merge (Codex VRAI/FAUX/NUANCE pass).
+API-conformance status: the `kind` mappings and required-field facts above were
+fact-checked against the live ERPNext DocTypes and Dolibarr API classes (Codex
+VRAI/FAUX/NUANCE pass, 2026-06-30). They must be re-verified against the tenant's
+ERP **version** at implementation time.
 
 ## Deferred (not in this iteration)
 
 - Best-of-breed superset interface (own-ERP phase).
-- Natural-key idempotent dedup on commit.
+- **Idempotency** — `idempotencyKey` + durable dedup (keyed by
+  `tenant + tool + key + payload-hash`, shared store for stateless multi-instance).
+  Removed from the MVP because no native ERP support; reintroduce only when backed
+  by a real dedup store.
 - `update` / `submit` / `cancel` / `delete` write tools and lifecycle semantics.
 - `supplier_create` (shows the doctype-vs-role-flag divergence).
+- `Partnership` customer kind; ERPNext `externalRef` via configured custom field.
 
 ## References
 
