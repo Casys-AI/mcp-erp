@@ -654,6 +654,34 @@ class DolibarrRestClient {
     );
   }
 
+  async updateThirdparty(
+    id: number,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "PUT",
+      `/thirdparties/${id}`,
+      `/thirdparties/${id}`,
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async updateProduct(
+    id: number,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "PUT",
+      `/products/${id}`,
+      `/products/${id}`,
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
   private async request<T>(
     method: string,
     path: string,
@@ -1949,6 +1977,203 @@ export function createDolibarrAdapter(
             resolved: payload,
           },
           summary: `Created Dolibarr product ${nativeId}`,
+        };
+      }
+
+      if (name === "dolibarr.thirdparty_update") {
+        rejectUnsupportedArguments(name, args, [
+          "mode",
+          "id",
+          "name",
+          "tva_intra",
+          "code_client",
+          "email",
+          "phone",
+          "multicurrency_code",
+        ]);
+        const mode = parseWriteMode(args);
+        const id = readRequiredInteger(args, "id", { min: 1 });
+        const payload: Record<string, unknown> = {};
+        for (
+          const f of [
+            "name",
+            "tva_intra",
+            "code_client",
+            "email",
+            "phone",
+            "multicurrency_code",
+          ]
+        ) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        const nativeId = String(id);
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Dolibarr Thirdparty",
+              resolved: payload,
+            },
+            summary: "Preview Dolibarr thirdparty update (not written)",
+          };
+        }
+        await client.updateThirdparty(id, payload, _ctx.signal);
+        return {
+          content: {
+            committed: true,
+            doctype: "Dolibarr Thirdparty",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated Dolibarr thirdparty ${nativeId}`,
+        };
+      }
+
+      if (name === "dolibarr.product_update") {
+        rejectUnsupportedArguments(name, args, [
+          "mode",
+          "id",
+          "label",
+          "price",
+          "type",
+        ]);
+        const mode = parseWriteMode(args);
+        const id = readRequiredInteger(args, "id", { min: 1 });
+        const payload: Record<string, unknown> = {};
+        const label = readOptionalStringArgument(args, "label");
+        if (label !== undefined) payload.label = label;
+        const productType = readOptionalIntegerArgument(args, "type", {
+          min: 0,
+        });
+        if (productType !== undefined) payload.type = productType;
+        if (typeof args.price === "number") {
+          payload.price = args.price;
+          payload.price_base_type = "HT";
+        }
+        const nativeId = String(id);
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Dolibarr Product",
+              resolved: payload,
+            },
+            summary: "Preview Dolibarr product update (not written)",
+          };
+        }
+        await client.updateProduct(id, payload, _ctx.signal);
+        return {
+          content: {
+            committed: true,
+            doctype: "Dolibarr Product",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated Dolibarr product ${nativeId}`,
+        };
+      }
+
+      if (name === "dolibarr.supplier_create") {
+        rejectUnsupportedArguments(name, args, [
+          "mode",
+          "name",
+          "tva_intra",
+          "code_client",
+          "email",
+          "phone",
+          "multicurrency_code",
+        ]);
+        const mode = parseWriteMode(args);
+        const payload: Record<string, unknown> = {
+          name: readRequiredString(args, "name"),
+          fournisseur: 1,
+          // ⚠️ CODEX: confirm whether client:0 should also be sent alongside
+          // fournisseur:1 to disambiguate the role. Implemented without client
+          // field for now — Dolibarr may default client to 0 when fournisseur=1.
+        };
+        for (
+          const f of [
+            "tva_intra",
+            "code_client",
+            "email",
+            "phone",
+            "multicurrency_code",
+          ]
+        ) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Dolibarr Thirdparty",
+              resolved: payload,
+            },
+            summary: "Preview Dolibarr supplier create (not written)",
+          };
+        }
+        const id = await client.createThirdparty(payload, _ctx.signal);
+        const nativeId = toDolibarrNativeId(id, name);
+        return {
+          content: {
+            committed: true,
+            doctype: "Dolibarr Thirdparty",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Created Dolibarr supplier ${nativeId}`,
+        };
+      }
+
+      if (name === "dolibarr.supplier_update") {
+        rejectUnsupportedArguments(name, args, [
+          "mode",
+          "id",
+          "name",
+          "tva_intra",
+          "code_client",
+          "email",
+          "phone",
+          "multicurrency_code",
+        ]);
+        const mode = parseWriteMode(args);
+        const id = readRequiredInteger(args, "id", { min: 1 });
+        const payload: Record<string, unknown> = {};
+        for (
+          const f of [
+            "name",
+            "tva_intra",
+            "code_client",
+            "email",
+            "phone",
+            "multicurrency_code",
+          ]
+        ) {
+          const v = readOptionalStringArgument(args, f);
+          if (v !== undefined) payload[f] = v;
+        }
+        const nativeId = String(id);
+        if (mode === "preview") {
+          return {
+            content: {
+              committed: false,
+              doctype: "Dolibarr Thirdparty",
+              resolved: payload,
+            },
+            summary: "Preview Dolibarr supplier update (not written)",
+          };
+        }
+        await client.updateThirdparty(id, payload, _ctx.signal);
+        return {
+          content: {
+            committed: true,
+            doctype: "Dolibarr Thirdparty",
+            nativeId,
+            resolved: payload,
+          },
+          summary: `Updated Dolibarr supplier ${nativeId}`,
         };
       }
 
