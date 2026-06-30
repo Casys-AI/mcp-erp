@@ -39,6 +39,7 @@ import { callDolibarrDiagnosticsTool } from "./platform/erp/dolibarr/handlers/di
 import { callDolibarrBusinessPartyTool } from "./platform/erp/dolibarr/handlers/business-parties.ts";
 import { callDolibarrCatalogTool } from "./platform/erp/dolibarr/handlers/catalog.ts";
 import { callDolibarrDocumentTool } from "./platform/erp/dolibarr/handlers/documents.ts";
+import { callDolibarrAccountingTool } from "./platform/erp/dolibarr/handlers/accounting.ts";
 import { createErpnextAdapter } from "./platform/erp/erpnext/adapter.ts";
 import { FrappeRestClient } from "./platform/erp/erpnext/client.ts";
 import {
@@ -49,6 +50,7 @@ import { callErpnextDiagnosticsTool } from "./platform/erp/erpnext/handlers/diag
 import { callErpnextBusinessPartyTool } from "./platform/erp/erpnext/handlers/business-parties.ts";
 import { callErpnextCatalogTool } from "./platform/erp/erpnext/handlers/catalog.ts";
 import { callErpnextDocumentTool } from "./platform/erp/erpnext/handlers/documents.ts";
+import { callErpnextAccountingTool } from "./platform/erp/erpnext/handlers/accounting.ts";
 import { ErpToolsClient } from "./platform/mcp/client.ts";
 import { ERP_VIEWERS } from "./platform/viewers/viewers.ts";
 
@@ -434,4 +436,9 @@ Deno.test("architecture slices — provider catalog handlers are split by family
 Deno.test("architecture slices — provider document handlers are split by family", () => {
   assertEquals(typeof callErpnextDocumentTool, "function");
   assertEquals(typeof callDolibarrDocumentTool, "function");
+});
+
+Deno.test("architecture slices — provider accounting handlers are split by family", () => {
+  assertEquals(typeof callErpnextAccountingTool, "function");
+  assertEquals(typeof callDolibarrAccountingTool, "function");
 });

@@ -18,6 +18,7 @@ import {
 } from "../../../domain/adapter.ts";
 import { DolibarrRestClient } from "./client.ts";
 import { DOLIBARR_TOOLS as TOOLS } from "./tools.ts";
+import { callDolibarrAccountingTool } from "./handlers/accounting.ts";
 import { callDolibarrBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callDolibarrCatalogTool } from "./handlers/catalog.ts";
 import { callDolibarrDocumentTool } from "./handlers/documents.ts";
@@ -260,79 +261,14 @@ export function createDolibarrAdapter(
       });
       if (document) return document;
 
-      if (name === "dolibarr.payment_list") {
-        rejectUnsupportedArguments(name, args, [
-          "limit",
-          "page",
-          "dateStart",
-          "dateEnd",
-        ]);
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const page = readOptionalInteger(args, "page", 0, {
-          min: 0,
-        });
-        const filters: Record<string, string | number> = {};
-        const dateStart = readOptionalDateArgument(args, "dateStart");
-        if (dateStart !== undefined) {
-          addSqlFilter(
-            filters,
-            sqlFilterDateComparison(
-              "t.datep",
-              ">=",
-              dateStart,
-            ),
-          );
-        }
-        const dateEnd = readOptionalDateArgument(args, "dateEnd");
-        if (dateEnd !== undefined) {
-          addSqlFilter(
-            filters,
-            sqlFilterDateComparison(
-              "t.datep",
-              "<=",
-              dateEnd,
-            ),
-          );
-        }
-        const payments = await client.listPayments({
-          limit,
-          page,
-          signal: _ctx.signal,
-          filters,
-        });
-        return {
-          content: {
-            doctype: "Dolibarr Payment",
-            data: payments,
-            _title: "Dolibarr Payments",
-            _rowAction: {
-              toolName: "dolibarr.payment_get",
-              idField: "id",
-              argName: "id",
-            },
-            payments,
-            count: payments.length,
-            limit,
-            page,
-          },
-          summary:
-            `Dolibarr payment_list returned ${payments.length} payment(s)`,
-        };
-      }
-      if (name === "dolibarr.payment_get") {
-        rejectUnsupportedArguments(name, args, ["id"]);
-        const id = readRequiredInteger(args, "id", { min: 1 });
-        const payment = await client.getPayment(id, _ctx.signal);
-        return {
-          content: {
-            payment,
-          },
-          summary: `Dolibarr payment_get returned ${id}`,
-        };
-      }
+      const accounting = await callDolibarrAccountingTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (accounting) return accounting;
+
       if (name === "dolibarr.stockmovement_list") {
         rejectUnsupportedArguments(name, args, [
           "limit",

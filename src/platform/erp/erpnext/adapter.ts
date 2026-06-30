@@ -27,15 +27,12 @@ import {
 import { parseWriteMode, WriteError } from "../../../domain/write.ts";
 import { FrappeRestClient } from "./client.ts";
 import type { FrappeFilter } from "./client.ts";
+import { callErpnextAccountingTool } from "./handlers/accounting.ts";
 import { callErpnextBusinessPartyTool } from "./handlers/business-parties.ts";
 import { callErpnextCatalogTool } from "./handlers/catalog.ts";
 import { callErpnextDocumentTool } from "./handlers/documents.ts";
 import { callErpnextDiagnosticsTool } from "./handlers/diagnostics.ts";
-import {
-  BIN_FIELDS,
-  ERPNEXT_TOOLS as TOOLS,
-  PAYMENT_ENTRY_FIELDS,
-} from "./tools.ts";
+import { BIN_FIELDS, ERPNEXT_TOOLS as TOOLS } from "./tools.ts";
 export { FrappeApiError } from "./client.ts";
 
 type ErpnextConnection = Extract<ErpConnection, { erpType: "erpnext" }>;
@@ -160,77 +157,14 @@ export function createErpnextAdapter(
       });
       if (document) return document;
 
-      if (name === "erpnext.payment_entry_list") {
-        const limit = readOptionalInteger(args, "limit", 20, {
-          min: 1,
-          max: 100,
-        });
-        const limitStart = readOptionalInteger(args, "limitStart", 0, {
-          min: 0,
-        });
-        const orderBy = readOptionalString(args, "orderBy", "modified desc");
-        const filters: FrappeFilter[] = [];
-        const partyType = readOptionalStringArgument(args, "partyType");
-        if (partyType) {
-          filters.push(["party_type", "=", partyType]);
-        }
-        const party = readOptionalStringArgument(args, "party");
-        if (party) {
-          filters.push(["party", "=", party]);
-        }
-        const paymentType = readOptionalStringArgument(args, "paymentType");
-        if (paymentType) {
-          filters.push(["payment_type", "=", paymentType]);
-        }
-        const dateFrom = readOptionalStringArgument(args, "dateFrom");
-        if (dateFrom) {
-          filters.push(["posting_date", ">=", dateFrom]);
-        }
-        const dateTo = readOptionalStringArgument(args, "dateTo");
-        if (dateTo) {
-          filters.push(["posting_date", "<=", dateTo]);
-        }
-        const paymentEntries = await client.list("Payment Entry", {
-          fields: PAYMENT_ENTRY_FIELDS,
-          filters,
-          limitPageLength: limit,
-          limitStart,
-          orderBy,
-        }, { signal: _ctx.signal });
-        return {
-          content: {
-            doctype: "Payment Entry",
-            data: paymentEntries,
-            _title: "ERPNext Payment Entries",
-            _rowAction: {
-              toolName: "erpnext.payment_entry_get",
-              idField: "name",
-              argName: "name",
-            },
-            paymentEntries,
-            count: paymentEntries.length,
-            limit,
-            limitStart,
-          },
-          summary:
-            `ERPNext payment_entry_list returned ${paymentEntries.length} payment entry(ies)`,
-        };
-      }
-      if (name === "erpnext.payment_entry_get") {
-        const paymentEntry = await client.get(
-          "Payment Entry",
-          readRequiredString(args, "name"),
-          { signal: _ctx.signal },
-        );
-        return {
-          content: {
-            paymentEntry,
-          },
-          summary: `ERPNext payment_entry_get returned ${
-            String(paymentEntry.name ?? "payment entry")
-          }`,
-        };
-      }
+      const accounting = await callErpnextAccountingTool({
+        name,
+        args,
+        ctx: _ctx,
+        client,
+      });
+      if (accounting) return accounting;
+
       if (name === "erpnext.bin_list") {
         const limit = readOptionalInteger(args, "limit", 20, {
           min: 1,

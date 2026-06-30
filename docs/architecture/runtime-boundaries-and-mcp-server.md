@@ -158,6 +158,7 @@ src/
     erp/
       erpnext/client.ts   # raw Frappe REST I/O
       erpnext/tools.ts    # provider tool manifest split by family
+      erpnext/handlers/accounting.ts
       erpnext/handlers/diagnostics.ts
       erpnext/handlers/business-parties.ts
       erpnext/handlers/catalog.ts
@@ -167,6 +168,7 @@ src/
       erpnext/types.ts    # ERPNext native payload shapes
       dolibarr/client.ts  # raw Dolibarr REST I/O
       dolibarr/tools.ts   # provider tool manifest split by family
+      dolibarr/handlers/accounting.ts
       dolibarr/handlers/diagnostics.ts
       dolibarr/handlers/business-parties.ts
       dolibarr/handlers/catalog.ts
