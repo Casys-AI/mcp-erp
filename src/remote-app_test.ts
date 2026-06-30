@@ -271,6 +271,155 @@ Deno.test(
   },
 );
 
+Deno.test(
+  "createErpRemoteApp — stateless tools/call traverses tenant middleware and returns tool result",
+  async () => {
+    const adapter = new FakeAdapter();
+    const cache = {
+      get: (id: string) => id === "tenant-1" ? adapter : undefined,
+      set: () => {},
+    };
+    const app = createErpRemoteApp({
+      connectionProvider: makeProvider(),
+      auth: { provider: new FakeAuthProvider() },
+      tenantResolver: new FixedTenantResolver({ [TEST_SUBJECT]: "tenant-1" }),
+      cache,
+      transport: "stateless",
+      name: "test-remote-stateless-call",
+      version: "0.0.1",
+      registerViewers: false,
+      erpTypes: ["erpnext"] as const,
+    });
+
+    const port = allocatePort();
+    const http = await app.startHttp({ port, onListen: () => {} });
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "authorization": `Bearer ${VALID_TOKEN}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "erpnext.ping",
+            arguments: {},
+            _meta: { [PROTO_KEY]: "2026-07-28" },
+          },
+        }),
+      });
+
+      assertEquals(res.status, 200);
+      // Stateless: no session id, protocol version echoed
+      assertEquals(res.headers.get("mcp-session-id"), null);
+      assertEquals(res.headers.get("mcp-protocol-version"), "2026-07-28");
+      const body = await res.json() as {
+        result: {
+          content: Array<{ text: string }>;
+          structuredContent: unknown;
+        };
+      };
+      assertEquals(body.result.content[0].text, "pong");
+      assertEquals(body.result.structuredContent, { ok: true });
+      // Tenant middleware resolved the tenant for this stateless request
+      assertEquals(adapter.calls.length, 1);
+      assertEquals(adapter.calls[0].ctx.tenantId, "tenant-1");
+      assertEquals(adapter.calls[0].ctx.actorSubject, TEST_SUBJECT);
+    } finally {
+      await http.shutdown();
+    }
+  },
+);
+
+Deno.test(
+  "createErpRemoteApp — stateless tools/call without protocolVersion returns -32602",
+  async () => {
+    const app = createErpRemoteApp({
+      connectionProvider: makeProvider(),
+      auth: { provider: new FakeAuthProvider() },
+      tenantResolver: new FixedTenantResolver({ [TEST_SUBJECT]: "tenant-1" }),
+      transport: "stateless",
+      name: "test-remote-stateless-noproto",
+      version: "0.0.1",
+      registerViewers: false,
+      erpTypes: ["erpnext"] as const,
+    });
+
+    const port = allocatePort();
+    const http = await app.startHttp({ port, onListen: () => {} });
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${VALID_TOKEN}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          // no _meta protocolVersion — SEP-2575 requires it in stateless mode
+          params: { name: "erpnext.ping", arguments: {} },
+        }),
+      });
+
+      assertEquals(res.status, 400);
+      const body = await res.json() as { error: { code: number } };
+      assertEquals(body.error.code, -32602);
+    } finally {
+      await http.shutdown();
+    }
+  },
+);
+
+Deno.test(
+  "createErpRemoteApp — stateless tools/call with unsupported protocolVersion returns -32004",
+  async () => {
+    const app = createErpRemoteApp({
+      connectionProvider: makeProvider(),
+      auth: { provider: new FakeAuthProvider() },
+      tenantResolver: new FixedTenantResolver({ [TEST_SUBJECT]: "tenant-1" }),
+      transport: "stateless",
+      name: "test-remote-stateless-badproto",
+      version: "0.0.1",
+      registerViewers: false,
+      erpTypes: ["erpnext"] as const,
+    });
+
+    const port = allocatePort();
+    const http = await app.startHttp({ port, onListen: () => {} });
+    try {
+      const res = await fetch(`http://localhost:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${VALID_TOKEN}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "erpnext.ping",
+            arguments: {},
+            _meta: { [PROTO_KEY]: "1999-01-01" },
+          },
+        }),
+      });
+
+      assertEquals(res.status, 400);
+      const body = await res.json() as { error: { code: number } };
+      assertEquals(body.error.code, -32004);
+    } finally {
+      await http.shutdown();
+    }
+  },
+);
+
 Deno.test("createErpRemoteApp — erpTypes restricts registered tool surface", async () => {
   const provider = makeProvider();
   const auth = {
