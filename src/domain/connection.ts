@@ -32,6 +32,12 @@ export type ErpConnection =
     defaultTerritory?: string;
     /** Optional default Supplier Group injected on Supplier create. */
     defaultSupplierGroup?: string;
+    /** Optional default Company injected on Sales document creates. ERPNext
+     * requires `company` but does not reliably default it through the REST API
+     * (`remember_last_selected_value` is a UI mechanism). When absent the ERP
+     * may fall back to Frappe site-level defaults; a structured ERP error
+     * surfaces if none applies. */
+    defaultCompany?: string;
   }
   | {
     erpType: "dolibarr";

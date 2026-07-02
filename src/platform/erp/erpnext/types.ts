@@ -40,6 +40,15 @@ export interface ErpNextItem {
   [key: string]: unknown;
 }
 
+/** Native ERPNext child-table row for Sales Order / Quotation / Sales Invoice. */
+export interface ErpNextNativeItemRow {
+  item_code: string;
+  qty: number;
+  rate: number;
+  description?: string;
+  [key: string]: unknown;
+}
+
 export interface ErpNextSalesInvoice {
   name?: string;
   customer?: string;

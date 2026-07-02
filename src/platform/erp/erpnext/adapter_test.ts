@@ -2484,6 +2484,513 @@ Deno.test("erpnext.customer_update — existing non-primary contact is promoted 
   }
 });
 
+// ── Increment 3: erpnext.sales_order_create ───────────────────────────────
+
+Deno.test("erpnext.sales_order_create — preview resolves payload without POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_order_create",
+      {
+        mode: "preview",
+        customer: "CUST-001",
+        delivery_date: "2026-08-01",
+        items: [{ item_code: "ITEM-001", qty: 2, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Sales Order");
+    assertEquals(c.resolved.customer, "CUST-001");
+    assertEquals(c.resolved.delivery_date, "2026-08-01");
+    assertEquals(Array.isArray(c.resolved.items), true);
+    assertEquals((c.resolved.items as unknown[]).length, 1);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — commit POSTs Sales Order with inline items", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SO-0001" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_order_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        delivery_date: "2026-08-01",
+        transaction_date: "2026-07-02",
+        items: [
+          { item_code: "ITEM-001", qty: 2, rate: 100 },
+          { item_code: "ITEM-002", qty: 1, rate: 200, description: "Special" },
+        ],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Sales%20Order");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer, "CUST-001");
+    assertEquals(body.delivery_date, "2026-08-01");
+    assertEquals(body.transaction_date, "2026-07-02");
+    assertEquals(Array.isArray(body.items), true);
+    assertEquals(body.items.length, 2);
+    assertEquals(body.items[0].item_code, "ITEM-001");
+    assertEquals(body.items[0].qty, 2);
+    assertEquals(body.items[0].rate, 100);
+    assertEquals(body.items[1].description, "Special");
+    assertEquals("docstatus" in body, false);
+    const c = r.content as {
+      committed: boolean;
+      nativeId: string;
+      doctype: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "SO-0001");
+    assertEquals(c.doctype, "Sales Order");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — injects company when defaultCompany set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SO-0002" } } },
+    captured,
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultCompany: "Acme Corp",
+    });
+    await adapter.callTool(
+      "erpnext.sales_order_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        delivery_date: "2026-08-01",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.company, "Acme Corp");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — omits company when defaultCompany not set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SO-0003" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.sales_order_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        delivery_date: "2026-08-01",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals("company" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — delivery_date is passed to payload", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SO-0004" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.sales_order_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        delivery_date: "2026-09-30",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 50 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.delivery_date, "2026-09-30");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — HTTP error is propagated as FrappeApiError", async () => {
+  const restore = mockFetch(
+    { status: 403, body: { message: "Not permitted" } },
+    [],
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.sales_order_create",
+          {
+            mode: "commit",
+            customer: "CUST-001",
+            delivery_date: "2026-08-01",
+            items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      FrappeApiError,
+    );
+    assertEquals(err.status, 403);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.sales_order_create",
+          {
+            mode: "commit",
+            customer: "CUST-001",
+            delivery_date: "2026-08-01",
+            items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+  } finally {
+    restore();
+  }
+});
+
+// ── Increment 3: erpnext.quotation_create ────────────────────────────────
+
+Deno.test("erpnext.quotation_create — preview uses party_name and quotation_to without POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.quotation_create",
+      {
+        mode: "preview",
+        party_name: "CUST-001",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 500 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Quotation");
+    assertEquals(c.resolved.quotation_to, "Customer");
+    assertEquals(c.resolved.party_name, "CUST-001");
+    assertEquals("customer" in c.resolved, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.quotation_create — commit POSTs Quotation with quotation_to and party_name", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "QTN-0001" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.quotation_create",
+      {
+        mode: "commit",
+        party_name: "CUST-001",
+        transaction_date: "2026-07-02",
+        valid_till: "2026-07-31",
+        items: [{ item_code: "ITEM-001", qty: 3, rate: 150 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Quotation");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.quotation_to, "Customer");
+    assertEquals(body.party_name, "CUST-001");
+    assertEquals("customer" in body, false);
+    assertEquals(body.transaction_date, "2026-07-02");
+    assertEquals(body.valid_till, "2026-07-31");
+    assertEquals(body.items[0].item_code, "ITEM-001");
+    assertEquals("docstatus" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "QTN-0001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.quotation_create — injects company when defaultCompany set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "QTN-0002" } } },
+    captured,
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultCompany: "Acme Corp",
+    });
+    await adapter.callTool(
+      "erpnext.quotation_create",
+      {
+        mode: "commit",
+        party_name: "CUST-001",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.company, "Acme Corp");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.quotation_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.quotation_create",
+          {
+            mode: "commit",
+            party_name: "CUST-001",
+            items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+  } finally {
+    restore();
+  }
+});
+
+// ── Increment 3: erpnext.sales_invoice_create ─────────────────────────────
+
+Deno.test("erpnext.sales_invoice_create — preview resolves payload without POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_invoice_create",
+      {
+        mode: "preview",
+        customer: "CUST-001",
+        items: [{ item_code: "ITEM-001", qty: 2, rate: 300 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean; doctype: string };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Sales Invoice");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_create — commit POSTs Sales Invoice with inline items", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SINV-0001" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_invoice_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        posting_date: "2026-07-02",
+        due_date: "2026-08-01",
+        items: [{ item_code: "ITEM-001", qty: 5, rate: 200 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(captured[0].url.pathname, "/api/resource/Sales%20Invoice");
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer, "CUST-001");
+    assertEquals(body.posting_date, "2026-07-02");
+    assertEquals(body.due_date, "2026-08-01");
+    assertEquals(body.items[0].item_code, "ITEM-001");
+    assertEquals(body.items[0].qty, 5);
+    assertEquals(body.items[0].rate, 200);
+    assertEquals("docstatus" in body, false);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "SINV-0001");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_create — injects company when defaultCompany set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SINV-0002" } } },
+    captured,
+  );
+  try {
+    const adapter = createErpnextAdapter({
+      erpType: "erpnext",
+      apiUrl: "https://erp.example.com",
+      apiKey: "k",
+      apiSecret: "s",
+      sandbox: true,
+      defaultCompany: "Acme Corp",
+    });
+    await adapter.callTool(
+      "erpnext.sales_invoice_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.company, "Acme Corp");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_create — omits company when defaultCompany not set", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SINV-0003" } } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "erpnext.sales_invoice_create",
+      {
+        mode: "commit",
+        customer: "CUST-001",
+        items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals("company" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_create — HTTP error is propagated as FrappeApiError", async () => {
+  const restore = mockFetch(
+    { status: 403, body: { message: "Not permitted" } },
+    [],
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.sales_invoice_create",
+          {
+            mode: "commit",
+            customer: "CUST-001",
+            items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      FrappeApiError,
+    );
+    assertEquals(err.status, 403);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_create — no name in response throws CREATE_FAILED", async () => {
+  const restore = mockFetch({ status: 200, body: { data: {} } }, []);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.sales_invoice_create",
+          {
+            mode: "commit",
+            customer: "CUST-001",
+            items: [{ item_code: "ITEM-001", qty: 1, rate: 100 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "CREATE_FAILED");
+  } finally {
+    restore();
+  }
+});
+
 Deno.test("erpnext.supplier_update — existing non-primary contact is promoted after update", async () => {
   const captured: CapturedFetch[] = [];
   const restore = mockFetchSequence(

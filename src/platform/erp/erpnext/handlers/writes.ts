@@ -244,7 +244,192 @@ export async function callErpnextWriteTool(
     });
   }
 
+  if (name === "erpnext.sales_order_create") {
+    const mode = parseWriteMode(args);
+    const customer = readRequiredString(args, "customer");
+    const deliveryDate = readRequiredString(args, "delivery_date");
+    const items = readNativeItemRows(args, name);
+    const payload: Record<string, unknown> = {
+      customer,
+      delivery_date: deliveryDate,
+      items,
+    };
+    const transactionDate = readOptionalStringArgument(
+      args,
+      "transaction_date",
+    );
+    if (transactionDate !== undefined) {
+      payload.transaction_date = transactionDate;
+    }
+    if (connection.defaultCompany) payload.company = connection.defaultCompany;
+
+    if (mode === "preview") {
+      return {
+        content: {
+          committed: false,
+          doctype: "Sales Order",
+          resolved: payload,
+        },
+        summary: "Preview ERPNext Sales Order draft (not written)",
+      };
+    }
+    const created = await client.create<Record<string, unknown>>(
+      "Sales Order",
+      payload,
+      { signal: ctx.signal },
+    );
+    const nativeId = created.name;
+    if (typeof nativeId !== "string" || nativeId.length === 0) {
+      throw new WriteError(
+        "CREATE_FAILED",
+        { erpType: "erpnext", tool: name, response: created },
+        "ERP returned no document name",
+      );
+    }
+    return {
+      content: {
+        committed: true,
+        doctype: "Sales Order",
+        nativeId,
+        resolved: payload,
+      },
+      summary: `Created ERPNext Sales Order draft ${nativeId}`,
+    };
+  }
+
+  if (name === "erpnext.quotation_create") {
+    const mode = parseWriteMode(args);
+    const partyName = readRequiredString(args, "party_name");
+    const items = readNativeItemRows(args, name);
+    const payload: Record<string, unknown> = {
+      quotation_to: "Customer",
+      party_name: partyName,
+      items,
+    };
+    const transactionDate = readOptionalStringArgument(
+      args,
+      "transaction_date",
+    );
+    if (transactionDate !== undefined) {
+      payload.transaction_date = transactionDate;
+    }
+    const validTill = readOptionalStringArgument(args, "valid_till");
+    if (validTill !== undefined) payload.valid_till = validTill;
+    if (connection.defaultCompany) payload.company = connection.defaultCompany;
+
+    if (mode === "preview") {
+      return {
+        content: { committed: false, doctype: "Quotation", resolved: payload },
+        summary: "Preview ERPNext Quotation draft (not written)",
+      };
+    }
+    const created = await client.create<Record<string, unknown>>(
+      "Quotation",
+      payload,
+      { signal: ctx.signal },
+    );
+    const nativeId = created.name;
+    if (typeof nativeId !== "string" || nativeId.length === 0) {
+      throw new WriteError(
+        "CREATE_FAILED",
+        { erpType: "erpnext", tool: name, response: created },
+        "ERP returned no document name",
+      );
+    }
+    return {
+      content: {
+        committed: true,
+        doctype: "Quotation",
+        nativeId,
+        resolved: payload,
+      },
+      summary: `Created ERPNext Quotation draft ${nativeId}`,
+    };
+  }
+
+  if (name === "erpnext.sales_invoice_create") {
+    const mode = parseWriteMode(args);
+    const customer = readRequiredString(args, "customer");
+    const items = readNativeItemRows(args, name);
+    const payload: Record<string, unknown> = { customer, items };
+    const postingDate = readOptionalStringArgument(args, "posting_date");
+    if (postingDate !== undefined) payload.posting_date = postingDate;
+    const dueDate = readOptionalStringArgument(args, "due_date");
+    if (dueDate !== undefined) payload.due_date = dueDate;
+    if (connection.defaultCompany) payload.company = connection.defaultCompany;
+
+    if (mode === "preview") {
+      return {
+        content: {
+          committed: false,
+          doctype: "Sales Invoice",
+          resolved: payload,
+        },
+        summary: "Preview ERPNext Sales Invoice draft (not written)",
+      };
+    }
+    const created = await client.create<Record<string, unknown>>(
+      "Sales Invoice",
+      payload,
+      { signal: ctx.signal },
+    );
+    const nativeId = created.name;
+    if (typeof nativeId !== "string" || nativeId.length === 0) {
+      throw new WriteError(
+        "CREATE_FAILED",
+        { erpType: "erpnext", tool: name, response: created },
+        "ERP returned no document name",
+      );
+    }
+    return {
+      content: {
+        committed: true,
+        doctype: "Sales Invoice",
+        nativeId,
+        resolved: payload,
+      },
+      summary: `Created ERPNext Sales Invoice draft ${nativeId}`,
+    };
+  }
+
   return undefined;
+}
+
+function readNativeItemRows(
+  args: Record<string, unknown>,
+  toolName: string,
+): Array<Record<string, unknown>> {
+  const raw = args.items;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new WriteError(
+      "INVALID_ARGS",
+      { field: "items", tool: toolName },
+      "'items' must be a non-empty array.",
+    );
+  }
+  return raw.map((row, index) => {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new TypeError(`items[${index}] must be a plain object`);
+    }
+    const item = row as Record<string, unknown>;
+    const itemCode = readRequiredString(item, "item_code");
+    const qty = item.qty;
+    if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0) {
+      throw new TypeError(`items[${index}].qty must be a finite number > 0`);
+    }
+    const rate = item.rate;
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) {
+      throw new TypeError(`items[${index}].rate must be a finite number >= 0`);
+    }
+    const result: Record<string, unknown> = {
+      item_code: itemCode,
+      qty: qty as number,
+      rate: rate as number,
+    };
+    const desc = readOptionalStringArgument(item, "description");
+    if (desc !== undefined) result.description = desc;
+    return result;
+  });
 }
 
 async function createLinkedContactDocument(
