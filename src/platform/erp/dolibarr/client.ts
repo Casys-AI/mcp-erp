@@ -203,6 +203,91 @@ export class DolibarrRestClient {
     );
   }
 
+  async createOrder(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/orders",
+      "/orders",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async createProposal(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/proposals",
+      "/proposals",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async createInvoice(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return await this.request<unknown>(
+      "POST",
+      "/invoices",
+      "/invoices",
+      signal,
+      JSON.stringify(payload),
+    );
+  }
+
+  async addDocumentLine(
+    docKind: "orders" | "proposals" | "invoices",
+    id: number,
+    line: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const path = `/${docKind}/${id}/lines`;
+    return await this.request<unknown>(
+      "POST",
+      path,
+      path,
+      signal,
+      JSON.stringify(line),
+    );
+  }
+
+  async findProductByRef(
+    ref: string,
+    signal?: AbortSignal,
+  ): Promise<{ id: number; tva_tx?: string | number } | undefined> {
+    const escaped = ref.replace(/'/g, "''");
+    const params = new URLSearchParams();
+    params.set("sqlfilters", `(t.ref:=:'${escaped}')`);
+    params.set("limit", "1");
+    params.set("page", "0");
+    const path = "/products";
+    const result = await this.request<unknown>(
+      "GET",
+      `${path}?${params.toString()}`,
+      path,
+      signal,
+    );
+    if (!Array.isArray(result) || result.length === 0) return undefined;
+    const row = result[0] as Record<string, unknown>;
+    const rawId = row.id;
+    const numId = typeof rawId === "number"
+      ? rawId
+      : (typeof rawId === "string" ? parseInt(rawId, 10) : NaN);
+    if (!Number.isInteger(numId) || numId <= 0) return undefined;
+    const product: { id: number; tva_tx?: string | number } = { id: numId };
+    if (row.tva_tx !== undefined && row.tva_tx !== null) {
+      product.tva_tx = row.tva_tx as string | number;
+    }
+    return product;
+  }
+
   private async listResource(
     resource: "thirdparties" | "products" | "invoices" | "orders" | "proposals",
     options: {
