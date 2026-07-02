@@ -48,6 +48,14 @@ export type ErpConnection =
     sandbox: boolean;
     /** typent_id mapped to TE_PRIVATE for `kind: "individual"` (install-specific). */
     defaultIndividualTypentId?: number;
+    /**
+     * Injected as `idwarehouse` on order and invoice validate calls.
+     * When absent, `idwarehouse: 0` is sent — validation succeeds but performs
+     * NO stock movement even when the stock module expects one
+     * (`STOCK_CALCULATE_ON_BILL` etc.). Explicitly documented, never silent.
+     * Proposals never carry `idwarehouse` (Dolibarr API ignores it there).
+     */
+    defaultWarehouseId?: number;
   };
 
 /** ERP type literal — derived from the connection union. */

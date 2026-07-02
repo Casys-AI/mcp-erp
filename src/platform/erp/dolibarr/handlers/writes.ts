@@ -503,6 +503,132 @@ export async function callDolibarrWriteTool(
     };
   }
 
+  if (name === "dolibarr.order_validate") {
+    rejectUnsupportedArguments(name, args, ["mode", "id"]);
+    const mode = parseWriteMode(args);
+    const id = readRequiredInteger(args, "id", { min: 1 });
+    const idwarehouse = connection.defaultWarehouseId ?? 0;
+    const body: Record<string, unknown> = { idwarehouse, notrigger: 0 };
+    const nativeId = String(id);
+    if (mode === "preview") {
+      return {
+        content: {
+          committed: false,
+          doctype: "Dolibarr Order",
+          resolved: { endpoint: `/orders/${id}/validate`, body },
+        },
+        summary: "Preview Dolibarr order validate (not written)",
+      };
+    }
+    const result = await client.validateDocument(
+      "orders",
+      id,
+      body,
+      ctx.signal,
+    );
+    if (result.kind === "already_validated") {
+      throw new WriteError(
+        "ALREADY_TRANSITIONED",
+        { nativeId, docKind: "orders" },
+        "fetch the document to see its current state",
+      );
+    }
+    const statut = (result.body as Record<string, unknown>).statut;
+    return {
+      content: {
+        committed: true,
+        doctype: "Dolibarr Order",
+        nativeId,
+        resolved: { statut },
+      },
+      summary: `Validated Dolibarr order ${nativeId}`,
+    };
+  }
+
+  if (name === "dolibarr.proposal_validate") {
+    rejectUnsupportedArguments(name, args, ["mode", "id"]);
+    const mode = parseWriteMode(args);
+    const id = readRequiredInteger(args, "id", { min: 1 });
+    // proposals do NOT accept idwarehouse — Dolibarr API ignores it there
+    const body: Record<string, unknown> = { notrigger: 0 };
+    const nativeId = String(id);
+    if (mode === "preview") {
+      return {
+        content: {
+          committed: false,
+          doctype: "Dolibarr Proposal",
+          resolved: { endpoint: `/proposals/${id}/validate`, body },
+        },
+        summary: "Preview Dolibarr proposal validate (not written)",
+      };
+    }
+    const result = await client.validateDocument(
+      "proposals",
+      id,
+      body,
+      ctx.signal,
+    );
+    if (result.kind === "already_validated") {
+      throw new WriteError(
+        "ALREADY_TRANSITIONED",
+        { nativeId, docKind: "proposals" },
+        "fetch the document to see its current state",
+      );
+    }
+    const statut = (result.body as Record<string, unknown>).statut;
+    return {
+      content: {
+        committed: true,
+        doctype: "Dolibarr Proposal",
+        nativeId,
+        resolved: { statut },
+      },
+      summary: `Validated Dolibarr proposal ${nativeId}`,
+    };
+  }
+
+  if (name === "dolibarr.invoice_validate") {
+    rejectUnsupportedArguments(name, args, ["mode", "id"]);
+    const mode = parseWriteMode(args);
+    const id = readRequiredInteger(args, "id", { min: 1 });
+    const idwarehouse = connection.defaultWarehouseId ?? 0;
+    const body: Record<string, unknown> = { idwarehouse, notrigger: 0 };
+    const nativeId = String(id);
+    if (mode === "preview") {
+      return {
+        content: {
+          committed: false,
+          doctype: "Dolibarr Invoice",
+          resolved: { endpoint: `/invoices/${id}/validate`, body },
+        },
+        summary: "Preview Dolibarr invoice validate (not written)",
+      };
+    }
+    const result = await client.validateDocument(
+      "invoices",
+      id,
+      body,
+      ctx.signal,
+    );
+    if (result.kind === "already_validated") {
+      throw new WriteError(
+        "ALREADY_TRANSITIONED",
+        { nativeId, docKind: "invoices" },
+        "fetch the document to see its current state",
+      );
+    }
+    const statut = (result.body as Record<string, unknown>).statut;
+    return {
+      content: {
+        committed: true,
+        doctype: "Dolibarr Invoice",
+        nativeId,
+        resolved: { statut },
+      },
+      summary: `Validated Dolibarr invoice ${nativeId}`,
+    };
+  }
+
   return undefined;
 }
 
