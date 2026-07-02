@@ -2528,3 +2528,95 @@ Deno.test("dolibarr.order_create — SKU with single quote is escaped in sqlfilt
     restore();
   }
 });
+
+// ── addDocumentLine exact path per docKind ────────────────────────────────────
+
+Deno.test("dolibarr.order_create — line POST uses /orders/{id}/lines (plural)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "10" }] }, // GET product
+      { status: 200, body: 301 }, // POST /orders
+      { status: 200, body: 1 }, // POST /orders/301/lines
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "SKU-1", qty: 1, subprice: 100 }],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // line POST is the 3rd call
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/index.php/orders/301/lines");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_create — line POST uses /proposals/{id}/line (singular)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 6, tva_tx: "20" }] }, // GET product
+      { status: 200, body: 302 }, // POST /proposals
+      { status: 200, body: 1 }, // POST /proposals/302/line
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "SKU-2", qty: 1, subprice: 200 }],
+        date: "2026-02-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // line POST is the 3rd call — must be singular /line
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/index.php/proposals/302/line");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_create — line POST uses /invoices/{id}/lines (plural)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 7, tva_tx: "5" }] }, // GET product
+      { status: 200, body: 303 }, // POST /invoices
+      { status: 200, body: 1 }, // POST /invoices/303/lines
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.invoice_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "SKU-3", qty: 1, subprice: 300 }],
+        date: "2026-03-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // line POST is the 3rd call
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/index.php/invoices/303/lines");
+  } finally {
+    restore();
+  }
+});

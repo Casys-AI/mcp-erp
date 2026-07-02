@@ -96,6 +96,21 @@ export function parseIsoDate(
       `Field '${field}' must be a valid ISO date (YYYY-MM-DD).`,
     );
   }
+  // Calendrical check: round-trip via UTC to reject non-existent days
+  // (e.g. 2026-02-31 shifts to 2026-03-03 in JS Date, which would corrupt Dolibarr epoch).
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    throw new WriteError(
+      "INVALID_FIELD",
+      { field, value, erpType },
+      `Field '${field}' is not a real calendar date (YYYY-MM-DD); '${value}' does not exist.`,
+    );
+  }
   return value;
 }
 

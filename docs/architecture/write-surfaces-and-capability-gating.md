@@ -437,6 +437,12 @@ there).
   reintroduce only when backed by a real dedup store.
 - Sales document **update** (line-item update semantics diverge: ERPNext
   child-table PUT vs Dolibarr per-line subresources) and free-text lines.
+- **Structured errors inside the internal native write branches.** The `<erp>.*`
+  write branches validate their (already-mapped) args with the same
+  `TypeError`-throwing readers as increments 1–2; the normalized layer performs
+  the strict `WriteError` validation before dispatching to them. Harmonizing the
+  native readers onto `WriteError` is a cross-increment cleanup, deferred to
+  keep the three increments consistent (flagged by the 2026-07-02 Codex review).
 - Document lifecycle actions: `submit`, `cancel`, `validate` (Frappe
   `frappe.client.submit` / `frappe.client.cancel`; Dolibarr `/validate`
   endpoints).

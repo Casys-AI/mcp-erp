@@ -257,6 +257,38 @@ Deno.test("parseIsoDate — rejects invalid month 13", () => {
   assertEquals(err.code, "INVALID_FIELD");
 });
 
+Deno.test("parseIsoDate — rejects 2026-02-31 (non-existent day)", () => {
+  const err = assertThrows(
+    () => parseIsoDate("date", "2026-02-31", "dolibarr"),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+});
+
+Deno.test("parseIsoDate — rejects 2026-04-31 (April has 30 days)", () => {
+  const err = assertThrows(
+    () => parseIsoDate("date", "2026-04-31", "erpnext"),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+});
+
+Deno.test("parseIsoDate — accepts 2024-02-29 (leap year)", () => {
+  assertEquals(parseIsoDate("date", "2024-02-29", "dolibarr"), "2024-02-29");
+});
+
+Deno.test("parseIsoDate — rejects 2026-02-29 (non-leap year)", () => {
+  const err = assertThrows(
+    () => parseIsoDate("date", "2026-02-29", "erpnext"),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_FIELD");
+});
+
+Deno.test("parseIsoDate — accepts 2026-02-28 (last day of Feb in non-leap year)", () => {
+  assertEquals(parseIsoDate("date", "2026-02-28", "erpnext"), "2026-02-28");
+});
+
 // optIsoDate
 
 Deno.test("optIsoDate — undefined returns undefined", () => {

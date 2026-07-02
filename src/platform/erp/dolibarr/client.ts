@@ -248,7 +248,13 @@ export class DolibarrRestClient {
     line: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    const path = `/${docKind}/${id}/lines`;
+    // proposals uses the singular /line endpoint; orders and invoices use /lines
+    const lineSegment: Record<"orders" | "proposals" | "invoices", string> = {
+      orders: "lines",
+      proposals: "line",
+      invoices: "lines",
+    };
+    const path = `/${docKind}/${id}/${lineSegment[docKind]}`;
     return await this.request<unknown>(
       "POST",
       path,
