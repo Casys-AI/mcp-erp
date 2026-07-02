@@ -3,6 +3,7 @@ import { NormalizedError } from "../../domain/normalized.ts";
 import { WriteError } from "../../domain/write.ts";
 import {
   assertFieldsSupported,
+  erpnextEffectiveStatus,
   extractArray,
   extractDoc,
   optEnum,
@@ -120,4 +121,25 @@ Deno.test("handler utils — assertFieldsSupported checks each declared field", 
     WriteError,
   );
   assertEquals(err.code, "UNSUPPORTED_FIELD");
+});
+
+Deno.test("erpnextEffectiveStatus — explicit status wins", () => {
+  assertEquals(
+    erpnextEffectiveStatus({ status: "To Deliver and Bill", docstatus: 1 }),
+    "To Deliver and Bill",
+  );
+});
+
+Deno.test("erpnextEffectiveStatus — falls back to docstatus when status absent", () => {
+  assertEquals(erpnextEffectiveStatus({ docstatus: 0 }), "Draft");
+  assertEquals(erpnextEffectiveStatus({ docstatus: 1 }), "Submitted");
+  assertEquals(erpnextEffectiveStatus({ docstatus: 2 }), "Cancelled");
+  assertEquals(erpnextEffectiveStatus({ docstatus: "1" }), "Submitted");
+});
+
+Deno.test("erpnextEffectiveStatus — empty when neither present or unmappable", () => {
+  assertEquals(erpnextEffectiveStatus({}), "");
+  assertEquals(erpnextEffectiveStatus({ status: "" }), "");
+  assertEquals(erpnextEffectiveStatus({ docstatus: 7 }), "");
+  assertEquals(erpnextEffectiveStatus({ docstatus: "abc" }), "");
 });

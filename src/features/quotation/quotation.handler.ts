@@ -19,6 +19,7 @@ import type {
   SalesDocumentSubmitInput,
 } from "../shared/sales-document.types.ts";
 import {
+  erpnextEffectiveStatus,
   extractDoc,
   parseDolibarrNumericId,
   reqString,
@@ -140,7 +141,7 @@ export async function callQuotationTool(
       if (mode === "commit") {
         const resolved = content.resolved as Record<string, unknown>;
         const lifecycleState = mapErpNextLifecycle(
-          typeof resolved.status === "string" ? resolved.status : "",
+          erpnextEffectiveStatus(resolved),
           "Quotation",
         );
         return { content: { ...content, lifecycleState, erpType } };

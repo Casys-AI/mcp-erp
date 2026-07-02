@@ -123,3 +123,26 @@ export function assertFieldsSupported(
     assertFieldSupported(erpType, field, args);
   }
 }
+
+/**
+ * Effective ERPNext status for lifecycle mapping: the explicit `status`
+ * string when present, else derived from `docstatus` (0 → Draft,
+ * 1 → Submitted, 2 → Cancelled) — the same fallback the read path applies.
+ */
+export function erpnextEffectiveStatus(
+  resolved: Record<string, unknown>,
+): string {
+  if (typeof resolved.status === "string" && resolved.status !== "") {
+    return resolved.status;
+  }
+  const raw = resolved.docstatus;
+  const docstatus = typeof raw === "number"
+    ? raw
+    : typeof raw === "string" && raw.trim() !== ""
+    ? Number(raw)
+    : undefined;
+  if (docstatus === 0) return "Draft";
+  if (docstatus === 1) return "Submitted";
+  if (docstatus === 2) return "Cancelled";
+  return "";
+}

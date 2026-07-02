@@ -97,6 +97,21 @@ the project adheres to
   committed document POST, carrying `nativeId`/`lineIndex`/`attachedLines`). ISO
   dates are validated as real calendar days (no silent `2026-02-31` → March
   coercion).
+- Normalized sales document lifecycle (increment 4): `erp.sales_order_submit`,
+  `erp.quotation_submit`, `erp.sales_invoice_submit` on both ERPs — the draft →
+  committed transition (ERPNext submit ≡ Dolibarr validate), input
+  `{mode, nativeId}`. Committed results carry the normalized post-transition
+  `lifecycleState` (mapped through the per-doctype/per-kind lifecycle tables).
+  ERPNext commits GET the full document then call `frappe.client.submit` (the
+  embedded `modified` timestamp is the optimistic lock; `PUT {docstatus}` is
+  deliberately not used). Dolibarr validates via the per-document endpoints with
+  their diverging signatures (proposals take no `idwarehouse`); new optional
+  `defaultWarehouseId` tenant config is injected as `idwarehouse` on
+  order/invoice validation — when absent, validation proceeds with
+  `idwarehouse: 0` and performs no stock movement (documented, never silent).
+  Dolibarr HTTP 304 (already validated) maps to a structured
+  `ALREADY_TRANSITIONED` error, never an idempotent success. Document cancel is
+  deferred: Dolibarr has no homogeneous cancel path across the three documents.
 - Structured write errors serialized to JSON by the error mapper:
   `INVALID_MODE`, `MISSING_REQUIRED_FIELD`, `INVALID_FIELD`,
   `MISSING_REQUIRED_CONFIG`, `UNSUPPORTED_FIELD`, `CREATE_FAILED` — each

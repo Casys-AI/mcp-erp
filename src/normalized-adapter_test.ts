@@ -2326,3 +2326,46 @@ Deno.test("erp.capabilities_describe — includes the 3 submit tools", async () 
     );
   }
 });
+
+Deno.test("erp.sales_order_submit — erpnext commit: status absent → lifecycleState from docstatus", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchQueue(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "SO-002",
+            doctype: "Sales Order",
+            modified: "2026-07-02 12:00:00",
+            docstatus: 0,
+          },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          message: {
+            name: "SO-002",
+            doctype: "Sales Order",
+            docstatus: 1,
+          },
+        },
+      },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_order_submit",
+      { erpType: "erpnext", mode: "commit", nativeId: "SO-002" },
+      CTX,
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.lifecycleState, "validated");
+  } finally {
+    restore();
+  }
+});
