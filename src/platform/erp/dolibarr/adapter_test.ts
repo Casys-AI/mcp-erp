@@ -2620,3 +2620,442 @@ Deno.test("dolibarr.invoice_create — line POST uses /invoices/{id}/lines (plur
     restore();
   }
 });
+
+// ── Increment 4 — Dolibarr native validate branches (Task C) ──────────────────
+
+// ── preview = zero HTTP ───────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_validate — preview returns committed:false without HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.order_validate",
+      { mode: "preview", id: 42 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Order");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.endpoint, "/orders/42/validate");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_validate — preview returns committed:false without HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 88, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.proposal_validate",
+      { mode: "preview", id: 88 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Proposal");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.endpoint, "/proposals/88/validate");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — preview returns committed:false without HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 99, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.invoice_validate",
+      { mode: "preview", id: 99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Invoice");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.endpoint, "/invoices/99/validate");
+  } finally {
+    restore();
+  }
+});
+
+// ── pathname exact per docKind ────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_validate — commit POSTs to /orders/{id}/validate", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_validate",
+      { mode: "commit", id: 42 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/index.php/orders/42/validate",
+    );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_validate — commit POSTs to /proposals/{id}/validate", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 88, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_validate",
+      { mode: "commit", id: 88 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/index.php/proposals/88/validate",
+    );
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — commit POSTs to /invoices/{id}/validate", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 99, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.invoice_validate",
+      { mode: "commit", id: 99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/index.php/invoices/99/validate",
+    );
+  } finally {
+    restore();
+  }
+});
+
+// ── body per docKind: orders and invoices have idwarehouse, proposals do NOT ───
+
+Deno.test("dolibarr.order_validate — body includes idwarehouse:0 and notrigger:0 when defaultWarehouseId absent", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter(); // no defaultWarehouseId
+    await adapter.callTool(
+      "dolibarr.order_validate",
+      { mode: "commit", id: 42 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.idwarehouse, 0);
+    assertEquals(body.notrigger, 0);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — body includes idwarehouse:0 and notrigger:0 when defaultWarehouseId absent", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 99, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter(); // no defaultWarehouseId
+    await adapter.callTool(
+      "dolibarr.invoice_validate",
+      { mode: "commit", id: 99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.idwarehouse, 0);
+    assertEquals(body.notrigger, 0);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_validate — body has notrigger:0 and NO idwarehouse", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 88, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_validate",
+      { mode: "commit", id: 88 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.notrigger, 0);
+    assertEquals("idwarehouse" in body, false);
+  } finally {
+    restore();
+  }
+});
+
+// ── defaultWarehouseId injection ──────────────────────────────────────────────
+
+Deno.test("dolibarr.order_validate — defaultWarehouseId injected as idwarehouse", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createDolibarrAdapter({
+      erpType: "dolibarr",
+      apiUrl: "https://dolibarr.example.com/api/index.php",
+      apiKey: "dolikey",
+      sandbox: true,
+      defaultWarehouseId: 7,
+    });
+    await adapter.callTool(
+      "dolibarr.order_validate",
+      { mode: "commit", id: 42 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.idwarehouse, 7);
+    assertEquals(body.notrigger, 0);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — defaultWarehouseId injected as idwarehouse", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 99, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createDolibarrAdapter({
+      erpType: "dolibarr",
+      apiUrl: "https://dolibarr.example.com/api/index.php",
+      apiKey: "dolikey",
+      sandbox: true,
+      defaultWarehouseId: 3,
+    });
+    await adapter.callTool(
+      "dolibarr.invoice_validate",
+      { mode: "commit", id: 99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.idwarehouse, 3);
+    assertEquals(body.notrigger, 0);
+  } finally {
+    restore();
+  }
+});
+
+// ── HTTP 304 → ALREADY_TRANSITIONED ──────────────────────────────────────────
+// HTTP 304 is a "null-body status" (Fetch spec §4.2); new Response(body, {status:304})
+// throws TypeError. Use a raw fetch override that returns a proper bodyless 304.
+
+function mockFetchNullBody(
+  status: number,
+  captured: CapturedFetch[],
+): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    captured.push({
+      url: new URL(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    return Promise.resolve(new Response(null, { status }));
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+Deno.test("dolibarr.order_validate — 304 response → ALREADY_TRANSITIONED with nativeId and docKind", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchNullBody(304, captured);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.order_validate",
+          { mode: "commit", id: 42 },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "ALREADY_TRANSITIONED");
+    assertEquals(err.context.nativeId, "42");
+    assertEquals(err.context.docKind, "orders");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_validate — 304 response → ALREADY_TRANSITIONED", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchNullBody(304, captured);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.proposal_validate",
+          { mode: "commit", id: 88 },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "ALREADY_TRANSITIONED");
+    assertEquals(err.context.nativeId, "88");
+    assertEquals(err.context.docKind, "proposals");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — 304 response → ALREADY_TRANSITIONED", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchNullBody(304, captured);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.invoice_validate",
+          { mode: "commit", id: 99 },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "ALREADY_TRANSITIONED");
+    assertEquals(err.context.nativeId, "99");
+    assertEquals(err.context.docKind, "invoices");
+  } finally {
+    restore();
+  }
+});
+
+// ── happy path: committed:true with statut from response ──────────────────────
+
+Deno.test("dolibarr.order_validate — commit returns committed:true with statut:1 from response", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 42, ref: "CO-001", statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.order_validate",
+      { mode: "commit", id: 42 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.doctype, "Dolibarr Order");
+    assertEquals(c.nativeId, "42");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.statut, 1);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_validate — commit returns committed:true with statut:1 from response", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 88, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.proposal_validate",
+      { mode: "commit", id: 88 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.doctype, "Dolibarr Proposal");
+    assertEquals(c.nativeId, "88");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.statut, 1);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_validate — commit returns committed:true with statut:1 from response", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { id: 99, statut: 1 } },
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.invoice_validate",
+      { mode: "commit", id: 99 },
+      { tenantId: "t", actorSubject: null },
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.doctype, "Dolibarr Invoice");
+    assertEquals(c.nativeId, "99");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.statut, 1);
+  } finally {
+    restore();
+  }
+});

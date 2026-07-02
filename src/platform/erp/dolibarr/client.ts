@@ -264,6 +264,66 @@ export class DolibarrRestClient {
     );
   }
 
+  /**
+   * Validate (submit) a sales document via `POST /{docKind}/{id}/validate`.
+   *
+   * Dolibarr signals an already-validated document with HTTP 304, which the
+   * native `fetch` API does NOT surface as an exception (the response object
+   * is returned normally). This method inspects the status code directly and
+   * returns a discriminated result rather than throwing, so callers can map
+   * the 304 case to a structured `ALREADY_TRANSITIONED` write error.
+   */
+  async validateDocument(
+    docKind: "orders" | "proposals" | "invoices",
+    id: number,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<
+    | { readonly kind: "already_validated" }
+    | { readonly kind: "ok"; readonly body: unknown }
+  > {
+    const path = `/${docKind}/${id}/validate`;
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "dolapikey": this.connection.apiKey,
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new DolibarrApiError(
+        `Dolibarr POST ${path} failed: ${message}`,
+        0,
+        null,
+      );
+    }
+
+    // HTTP 304 = document is already in the validated state.
+    // fetch does not throw on 304; we detect it before the ok-check.
+    if (response.status === 304) {
+      return { kind: "already_validated" };
+    }
+
+    const responseBody = await readResponseBody(response);
+    if (!response.ok) {
+      throw new DolibarrApiError(
+        `Dolibarr POST ${path} failed: ${
+          extractDolibarrErrorMessage(responseBody, response.statusText)
+        }`,
+        response.status,
+        responseBody,
+      );
+    }
+
+    return { kind: "ok", body: responseBody };
+  }
+
   async findProductByRef(
     ref: string,
     signal?: AbortSignal,
