@@ -79,6 +79,24 @@ the project adheres to
   (mandatory for `Item`) and `defaultStockUom`; `defaultCustomerGroup` and
   `defaultTerritory` are optional. Dolibarr requires `defaultIndividualTypentId`
   for individual-party creates.
+- Normalized sales document creates (increment 3): `erp.sales_order_create`,
+  `erp.quotation_create`, `erp.sales_invoice_create` on both ERPs — create-only,
+  draft-only (lifecycle moves are a later increment). Shared input grammar:
+  required `customerId` and `lines[]` (`{sku, qty, unitPrice, description?}`,
+  product-referenced), optional ISO dates (`date`, plus
+  `deliveryDate`/`validUntil`/`dueDate` per document). ERPNext posts inline
+  `items` child rows (Quotation via `party_name` + `quotation_to`,
+  `delivery_date` enforced with `MISSING_REQUIRED_FIELD`; optional
+  `defaultCompany` tenant config on the connection). Dolibarr uses the two-phase
+  flow mandated by its REST API (document POST, then per-line POST — `{id}/line`
+  for proposals, `{id}/lines` for orders/invoices), with commit-time
+  `ref → fk_product` resolution that also propagates the product's `tva_tx`,
+  epoch-second dates, derived `duree_validite`, and explicit invoice `type: 0`.
+  New structured errors: `EMPTY_LINES`, `INVALID_LINE`, `INVALID_DATE_RANGE`,
+  `LINE_PRODUCT_NOT_FOUND`, and `LINES_FAILED` (partial line attach after a
+  committed document POST, carrying `nativeId`/`lineIndex`/`attachedLines`). ISO
+  dates are validated as real calendar days (no silent `2026-02-31` → March
+  coercion).
 - Structured write errors serialized to JSON by the error mapper:
   `INVALID_MODE`, `MISSING_REQUIRED_FIELD`, `INVALID_FIELD`,
   `MISSING_REQUIRED_CONFIG`, `UNSUPPORTED_FIELD`, `CREATE_FAILED` — each
