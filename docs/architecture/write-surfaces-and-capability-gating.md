@@ -428,6 +428,82 @@ converts to the API's expected representation (timestamps where required).
 per-ERP `supportedFields` (e.g. `deliveryDate` required-on-erpnext surfaced
 there).
 
+## Increment 4 — sales document lifecycle (design)
+
+Status: **design fact-checked 2026-07-02 (Codex pass against frappe/client.py,
+ERPNext controllers, Dolibarr API classes; corrections applied).** Normalized
+lifecycle moves for the three sales documents, both ERPs, **submit only**:
+
+- `erp.sales_order_submit`, `erp.quotation_submit`, `erp.sales_invoice_submit` —
+  the draft → committed transition (ERPNext `docstatus` 0→1 "submit" ≡ Dolibarr
+  `statut` 0→1 "validate"; same business gesture, normalized as _submit_).
+- `erp.*_cancel` — **DEFERRED** (fact-check verdict): ERPNext cancel is uniform
+  (`frappe.client.cancel {doctype, name}`), but Dolibarr has no clean,
+  homogeneous API cancel across the three documents (orders expose
+  `close`/`settodraft`/`reopen` — no cancel; proposals `close` with
+  status=refused; invoices `settodraft`/`settopaid`/`settounpaid` — the
+  cancelled statut 3 has no uniform endpoint). Normalizing that divergence would
+  hide too much; revisit with per-document native semantics.
+
+### Scope decisions
+
+1. **Input grammar**:
+   `{ mode: "preview"|"commit" (required), erpType,
+   nativeId (required) }` —
+   nothing else. No optimistic-lock field in the normalized surface (ERP
+   conflict errors surface structured).
+2. **Result**: `{ committed, nativeId, lifecycleState, resolved }` — the
+   post-transition `lifecycleState` is mapped through the existing Wave 3 tables
+   (`mapErpNextLifecycle` / `mapDolibarrLifecycle`), so the agent immediately
+   sees the normalized new state.
+3. **Preview stays HTTP-free** and echoes the native plan (method/endpoint/
+   payload placeholders), `committed: false` — consistent with creates.
+4. **Idempotence of the gesture**: submitting an already-submitted document is
+   an ERP-level error; it surfaces as the ERP's structured error, not a silent
+   success.
+
+### Provider-specific mappings (fact-checked 2026-07-02)
+
+**ERPNext** (sources: `frappe/client.py`, `frappe/model/document.py`, ERPNext
+controllers):
+
+- Submit = `GET /api/resource/:doctype/:name` (full current doc) then
+  `POST /api/method/frappe.client.submit` with `{doc}` — `submit(doc)` is
+  whitelisted and the embedded `modified` timestamp acts as the optimistic lock
+  (`TimestampMismatchError` on conflict, surfaced structured).
+  `PUT {docstatus: 1}` is technically accepted but is a trap: the server reloads
+  the doc and the client-side lock is lost — do not use.
+- Submit-time validations can reject drafts our increment 3 created — Quotation
+  rejects `valid_till < transaction_date`; Sales Order requires row `warehouse`
+  for stock items; Sales Invoice needs account defaults (`debit_to`,
+  `income_account`, `cost_center`, due-date rules). All are tenant-instance
+  concerns: they surface as structured ERP errors, no extra tenant config in
+  this increment.
+- Cancel (deferred tool) would be `frappe.client.cancel {doctype, name}`.
+
+**Dolibarr** (sources: the three API classes + stock classes):
+
+- Validate endpoints and EXACT signatures — they diverge per document: orders
+  `POST /orders/{id}/validate` `{idwarehouse=0, notrigger=0}`; proposals
+  `POST /proposals/{id}/validate` `{notrigger=0}` (**no idwarehouse**); invoices
+  `POST /invoices/{id}/validate` `{force_number='', idwarehouse=0, notrigger=0}`
+  (`force_number` stays out of the normalized surface).
+- **Stock semantics are silent**: validation succeeds with `idwarehouse=0` but
+  then performs NO stock movement even when the stock module expects one
+  (`STOCK_CALCULATE_ON_BILL` etc.). New optional tenant config
+  `defaultWarehouseId` on the Dolibarr connection: injected as `idwarehouse` on
+  order/invoice validate when present; when absent we send 0 and the no-movement
+  behavior is documented in `capabilities_describe` — never a silent surprise.
+- **Already validated → HTTP 304**, which must map to a structured
+  `ALREADY_TRANSITIONED` write error (never an idempotent success, never a
+  silent pass-through).
+- Batch products / negative-stock policies can reject a stocked validation —
+  surfaced as structured ERP errors.
+
+**Input note**: `erpType` STAYS in the input schema — the fact-check suggested
+deriving it from the tenant, but that alignment is the documented increment 1–3
+deviation, deferred with the multi-tenant integration. Surface consistency wins.
+
 ## Deferred (out of current scope)
 
 - Best-of-breed superset interface (own-ERP phase).
