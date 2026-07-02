@@ -44,6 +44,13 @@ const LINES_SCHEMA = {
   description: "Line items (min 1).",
 };
 
+const SUBMIT_MODE_SCHEMA = {
+  type: "string",
+  enum: ["preview", "commit"],
+  description:
+    "Required. 'preview' resolves the native plan without writing; 'commit' performs the transition.",
+};
+
 export const INVOICE_TOOLS: readonly ErpToolDefinition[] = [
   {
     name: "erp.sales_invoice_get",
@@ -92,6 +99,22 @@ export const INVOICE_TOOLS: readonly ErpToolDefinition[] = [
         },
       },
       required: ["erpType", "mode", "customerId", "lines"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
+  },
+  {
+    name: "erp.sales_invoice_submit",
+    description:
+      "Submit a sales invoice (draft → submitted). Transitions the document from draft (docstatus 0 / statut 0) to submitted (ERPNext docstatus 1) or validated (Dolibarr statut 1). mode 'preview' resolves the native plan without any HTTP call; mode 'commit' performs the transition and the result carries a normalized lifecycleState.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: SUBMIT_MODE_SCHEMA,
+        nativeId: NATIVE_ID_SCHEMA,
+      },
+      required: ["erpType", "mode", "nativeId"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false },

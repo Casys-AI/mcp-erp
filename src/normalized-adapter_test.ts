@@ -273,7 +273,7 @@ const adapter = new NormalizedAdapter({
 
 // ─── tools() ─────────────────────────────────────────────────────────────────
 
-Deno.test("NormalizedAdapter.tools — exposes exactly 17 erp.* tools", () => {
+Deno.test("NormalizedAdapter.tools — exposes exactly 20 erp.* tools", () => {
   const tools = adapter.tools();
   const names = tools.map((t) => t.name).sort();
   assertEquals(names, [
@@ -288,10 +288,13 @@ Deno.test("NormalizedAdapter.tools — exposes exactly 17 erp.* tools", () => {
     "erp.product_update",
     "erp.quotation_create",
     "erp.quotation_get",
+    "erp.quotation_submit",
     "erp.sales_invoice_create",
     "erp.sales_invoice_get",
+    "erp.sales_invoice_submit",
     "erp.sales_order_create",
     "erp.sales_order_get",
+    "erp.sales_order_submit",
     "erp.supplier_create",
     "erp.supplier_update",
   ]);
@@ -301,6 +304,7 @@ Deno.test("NormalizedAdapter.tools — read tools are readOnly", () => {
   const readTools = adapter.tools().filter((t) =>
     !t.name.endsWith("_create") &&
     !t.name.endsWith("_update") &&
+    !t.name.endsWith("_submit") &&
     t.name !== "erp.capabilities_describe"
   );
   for (const tool of readTools) {

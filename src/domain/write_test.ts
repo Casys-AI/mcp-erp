@@ -84,3 +84,23 @@ Deno.test("WRITE_CAPABILITIES — sales document tools present on both ERPs", ()
     );
   }
 });
+
+Deno.test("WRITE_CAPABILITIES — sales document submit tools present on both ERPs", () => {
+  const submitTools = [
+    "erp.sales_order_submit",
+    "erp.quotation_submit",
+    "erp.sales_invoice_submit",
+  ];
+  for (const tool of submitTools) {
+    assertEquals(
+      WRITE_CAPABILITIES.erpnext.tools.includes(tool),
+      true,
+      `erpnext missing ${tool}`,
+    );
+    assertEquals(
+      WRITE_CAPABILITIES.dolibarr.tools.includes(tool),
+      true,
+      `dolibarr missing ${tool}`,
+    );
+  }
+});

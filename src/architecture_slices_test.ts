@@ -324,15 +324,19 @@ Deno.test("architecture slices — supplier feature owns normalized supplier han
 Deno.test("architecture slices — document contracts and mappers own normalized reads", () => {
   assertEquals(
     INVOICE_TOOLS.map((tool) => tool.name),
-    ["erp.sales_invoice_get", "erp.sales_invoice_create"],
+    [
+      "erp.sales_invoice_get",
+      "erp.sales_invoice_create",
+      "erp.sales_invoice_submit",
+    ],
   );
   assertEquals(
     SALES_ORDER_TOOLS.map((tool) => tool.name),
-    ["erp.sales_order_get", "erp.sales_order_create"],
+    ["erp.sales_order_get", "erp.sales_order_create", "erp.sales_order_submit"],
   );
   assertEquals(
     QUOTATION_TOOLS.map((tool) => tool.name),
-    ["erp.quotation_get", "erp.quotation_create"],
+    ["erp.quotation_get", "erp.quotation_create", "erp.quotation_submit"],
   );
 
   assertEquals(
@@ -733,4 +737,41 @@ Deno.test("architecture slices — provider inventory handlers are split by fami
 Deno.test("architecture slices — provider write handlers are split by family", () => {
   assertEquals(typeof callErpnextWriteTool, "function");
   assertEquals(typeof callDolibarrWriteTool, "function");
+});
+
+Deno.test("architecture slices — sales document submit contracts have strict schemas", () => {
+  const submitTools = [
+    SALES_ORDER_TOOLS.find((t) => t.name === "erp.sales_order_submit")!,
+    QUOTATION_TOOLS.find((t) => t.name === "erp.quotation_submit")!,
+    INVOICE_TOOLS.find((t) => t.name === "erp.sales_invoice_submit")!,
+  ];
+
+  for (const tool of submitTools) {
+    const schema = tool.inputSchema;
+    assertEquals(schema.type, "object");
+    assertEquals(schema.additionalProperties, false);
+    assertEquals(
+      (schema.required as string[]).includes("erpType"),
+      true,
+      `${tool.name}: erpType not required`,
+    );
+    assertEquals(
+      (schema.required as string[]).includes("mode"),
+      true,
+      `${tool.name}: mode not required`,
+    );
+    assertEquals(
+      (schema.required as string[]).includes("nativeId"),
+      true,
+      `${tool.name}: nativeId not required`,
+    );
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    assertEquals(props.mode.type, "string");
+    assertEquals((props.mode.enum as string[]).includes("preview"), true);
+    assertEquals((props.mode.enum as string[]).includes("commit"), true);
+    assertEquals(props.nativeId.type, "string");
+    assertEquals(props.nativeId.minLength, 1);
+    assertEquals(tool.annotations?.readOnlyHint, false);
+    assertEquals(tool.annotations?.destructiveHint, false);
+  }
 });
