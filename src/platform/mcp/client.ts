@@ -25,7 +25,7 @@ import {
   type ErpAdapterCache,
   type ErpConnectionProvider,
   ErpProviderError,
-} from "../../connection-provider.ts";
+} from "./connection-provider.ts";
 
 export interface ErpToolsClientOptions {
   readonly tenantId: string;

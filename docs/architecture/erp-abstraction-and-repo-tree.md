@@ -19,6 +19,8 @@ The current package has moved past scaffold-only:
   projection layer that mirrors `mcp-einvoice`'s `EInvoiceToolsClient`.
 - `src/domain/connection.ts`: explicit tenant-scoped `ErpConnection`.
 - `src/registry.ts`: `buildAdapter(connection)`.
+- `src/platform/mcp/connection-provider.ts`: `ErpConnectionProvider`, the
+  per-tenant credential resolver behind the multi-tenant remote boundary.
 - `src/platform/erp/erpnext/client.ts`: raw Frappe REST client.
 - `src/platform/erp/erpnext/tools.ts`: ERPNext provider tool manifest split by
   family.
@@ -321,6 +323,7 @@ src/
         types.ts
     mcp/
       client.ts
+      connection-provider.ts
       error-mapper.ts
       mcp-app.ts
       remote-app.ts
@@ -328,9 +331,19 @@ src/
     viewers/
       viewers.ts
 
+  ui/
+    dist/
+
   registry.ts
   normalized-adapter.ts
 ```
+
+Tests are colocated with the module they cover (`domain/*_test.ts`,
+`platform/mcp/*_test.ts`, `platform/erp/*/adapter_test.ts`,
+`features/**/*_test.ts`, `ui/detail-viewer_test.ts` for the built viewer
+assets). The only root-level tests are the ones that cover root-level
+composition modules (`registry`, `normalized-adapter`) and the transverse
+`architecture_slices_test.ts` guard.
 
 There are no internal compatibility re-export files. `mod.ts` is the external
 package interface; internal code imports directly from `domain/`, `features/`,

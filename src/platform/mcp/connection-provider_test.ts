@@ -1,6 +1,6 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import type { ErpAdapter } from "./domain/adapter.ts";
-import type { ErpConnection } from "./domain/connection.ts";
+import type { ErpAdapter } from "../../domain/adapter.ts";
+import type { ErpConnection } from "../../domain/connection.ts";
 import {
   buildAdapterFromProvider,
   type ErpAdapterCache,

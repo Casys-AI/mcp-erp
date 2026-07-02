@@ -12,7 +12,7 @@ import type { ToolErrorMapper } from "@casys/mcp-server";
 import { UnknownToolError } from "../../domain/adapter.ts";
 import { NormalizedError } from "../../domain/normalized.ts";
 import { WriteError } from "../../domain/write.ts";
-import { ErpProviderError } from "../../connection-provider.ts";
+import { ErpProviderError } from "./connection-provider.ts";
 import { DolibarrApiError } from "../erp/dolibarr/adapter.ts";
 import { FrappeApiError } from "../erp/erpnext/adapter.ts";
 

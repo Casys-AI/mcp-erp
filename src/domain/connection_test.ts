@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import type { ErpConnection } from "./domain/connection.ts";
+import type { ErpConnection } from "./connection.ts";
 
 Deno.test("ErpConnection — erpnext variant accepts tenant defaults", () => {
   const conn: ErpConnection = {

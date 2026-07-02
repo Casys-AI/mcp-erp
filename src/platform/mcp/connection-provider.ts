@@ -16,9 +16,9 @@
  * @module @casys/mcp-erp/connection-provider
  */
 
-import type { ErpAdapter } from "./domain/adapter.ts";
-import type { ErpConnection } from "./domain/connection.ts";
-import { buildAdapter } from "./registry.ts";
+import type { ErpAdapter } from "../../domain/adapter.ts";
+import type { ErpConnection } from "../../domain/connection.ts";
+import { buildAdapter } from "../../registry.ts";
 
 // ---------------------------------------------------------------------------
 // Machine-readable error

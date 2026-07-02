@@ -8,8 +8,8 @@ import type {
   ErpToolCallContext,
   ErpToolCallResult,
   ErpToolDefinition,
-} from "./domain/adapter.ts";
-import { createErpRemoteApp } from "./platform/mcp/remote-app.ts";
+} from "../../domain/adapter.ts";
+import { createErpRemoteApp } from "./remote-app.ts";
 import type { ErpConnectionProvider } from "./connection-provider.ts";
 
 // ---------------------------------------------------------------------------

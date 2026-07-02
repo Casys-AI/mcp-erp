@@ -1,11 +1,11 @@
 import { assertEquals } from "@std/assert";
 import { ErpProviderError } from "./connection-provider.ts";
-import { UnknownToolError } from "./domain/adapter.ts";
-import { NormalizedError } from "./domain/normalized.ts";
-import { WriteError } from "./domain/write.ts";
-import { DolibarrApiError } from "./platform/erp/dolibarr/adapter.ts";
-import { FrappeApiError } from "./platform/erp/erpnext/adapter.ts";
-import { erpToolErrorMapper } from "./platform/mcp/error-mapper.ts";
+import { UnknownToolError } from "../../domain/adapter.ts";
+import { NormalizedError } from "../../domain/normalized.ts";
+import { WriteError } from "../../domain/write.ts";
+import { DolibarrApiError } from "../erp/dolibarr/adapter.ts";
+import { FrappeApiError } from "../erp/erpnext/adapter.ts";
+import { erpToolErrorMapper } from "./error-mapper.ts";
 
 Deno.test("erpToolErrorMapper — maps adapter errors to tool errors", () => {
   assertEquals(

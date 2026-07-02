@@ -5,11 +5,8 @@ import type {
   ErpToolCallContext,
   ErpToolCallResult,
   ErpToolDefinition,
-} from "./domain/adapter.ts";
-import {
-  buildMultiTenantHandlersMap,
-  ErpToolsClient,
-} from "./platform/mcp/client.ts";
+} from "../../domain/adapter.ts";
+import { buildMultiTenantHandlersMap, ErpToolsClient } from "./client.ts";
 import {
   type ErpConnectionProvider,
   ErpProviderError,

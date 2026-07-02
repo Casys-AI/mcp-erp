@@ -4,7 +4,7 @@ import {
   parseWriteMode,
   WRITE_CAPABILITIES,
   WriteError,
-} from "./domain/write.ts";
+} from "./write.ts";
 
 Deno.test("parseWriteMode — accepts preview and commit", () => {
   assertEquals(parseWriteMode({ mode: "preview" }), "preview");

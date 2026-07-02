@@ -4,7 +4,7 @@ import {
   createErpnextAdapter,
   type ErpToolDefinition,
   getErpToolDefinitions,
-} from "../mod.ts";
+} from "../../../mod.ts";
 
 function comparableToolDefinition(tool: ErpToolDefinition) {
   return {

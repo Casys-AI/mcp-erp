@@ -23,8 +23,8 @@ import {
   type TenantResolver,
 } from "@casys/mcp-server";
 import type { AuthOptions } from "@casys/mcp-server";
-import type { ErpAdapterCache } from "../../connection-provider.ts";
-import type { ErpConnectionProvider } from "../../connection-provider.ts";
+import type { ErpAdapterCache } from "./connection-provider.ts";
+import type { ErpConnectionProvider } from "./connection-provider.ts";
 import { buildMultiTenantHandlersMap } from "./client.ts";
 import { erpToolErrorMapper } from "./error-mapper.ts";
 import { registerErpViewers } from "../viewers/viewers.ts";

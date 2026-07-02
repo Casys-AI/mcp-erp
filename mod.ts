@@ -44,11 +44,11 @@ export { getErpToolDefinitions } from "./src/platform/mcp/tool-catalog.ts";
 export {
   buildAdapterFromProvider,
   ErpProviderError,
-} from "./src/connection-provider.ts";
+} from "./src/platform/mcp/connection-provider.ts";
 export type {
   ErpAdapterCache,
   ErpConnectionProvider,
-} from "./src/connection-provider.ts";
+} from "./src/platform/mcp/connection-provider.ts";
 export { createErpRemoteApp } from "./src/platform/mcp/remote-app.ts";
 export type {
   CreateErpRemoteAppOptions,
