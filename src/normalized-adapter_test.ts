@@ -237,7 +237,7 @@ const adapter = new NormalizedAdapter({
 
 // ─── tools() ─────────────────────────────────────────────────────────────────
 
-Deno.test("NormalizedAdapter.tools — exposes exactly 14 erp.* tools", () => {
+Deno.test("NormalizedAdapter.tools — exposes exactly 17 erp.* tools", () => {
   const tools = adapter.tools();
   const names = tools.map((t) => t.name).sort();
   assertEquals(names, [
@@ -250,8 +250,11 @@ Deno.test("NormalizedAdapter.tools — exposes exactly 14 erp.* tools", () => {
     "erp.customer_update",
     "erp.product_create",
     "erp.product_update",
+    "erp.quotation_create",
     "erp.quotation_get",
+    "erp.sales_invoice_create",
     "erp.sales_invoice_get",
+    "erp.sales_order_create",
     "erp.sales_order_get",
     "erp.supplier_create",
     "erp.supplier_update",

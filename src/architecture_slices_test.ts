@@ -306,15 +306,15 @@ Deno.test("architecture slices — supplier feature owns normalized supplier han
 Deno.test("architecture slices — document contracts and mappers own normalized reads", () => {
   assertEquals(
     INVOICE_TOOLS.map((tool) => tool.name),
-    ["erp.sales_invoice_get"],
+    ["erp.sales_invoice_get", "erp.sales_invoice_create"],
   );
   assertEquals(
     SALES_ORDER_TOOLS.map((tool) => tool.name),
-    ["erp.sales_order_get"],
+    ["erp.sales_order_get", "erp.sales_order_create"],
   );
   assertEquals(
     QUOTATION_TOOLS.map((tool) => tool.name),
-    ["erp.quotation_get"],
+    ["erp.quotation_get", "erp.quotation_create"],
   );
 
   assertEquals(
@@ -415,6 +415,76 @@ Deno.test("architecture slices — document features own normalized read handler
   assertEquals(typeof callInvoiceTool, "function");
   assertEquals(typeof callSalesOrderTool, "function");
   assertEquals(typeof callQuotationTool, "function");
+});
+
+Deno.test("architecture slices — sales document create contracts have strict schemas", () => {
+  const createTools = [
+    SALES_ORDER_TOOLS.find((t) => t.name === "erp.sales_order_create")!,
+    QUOTATION_TOOLS.find((t) => t.name === "erp.quotation_create")!,
+    INVOICE_TOOLS.find((t) => t.name === "erp.sales_invoice_create")!,
+  ];
+
+  for (const tool of createTools) {
+    const schema = tool.inputSchema;
+    assertEquals(schema.type, "object");
+    assertEquals(schema.additionalProperties, false);
+    assertEquals(
+      (schema.required as string[]).includes("mode"),
+      true,
+      `${tool.name}: mode not required`,
+    );
+    assertEquals(
+      (schema.required as string[]).includes("customerId"),
+      true,
+      `${tool.name}: customerId not required`,
+    );
+    assertEquals(
+      (schema.required as string[]).includes("lines"),
+      true,
+      `${tool.name}: lines not required`,
+    );
+
+    const linesSchema = (schema.properties as Record<string, unknown>)
+      .lines as Record<string, unknown>;
+    assertEquals(linesSchema.type, "array");
+    assertEquals(linesSchema.minItems, 1);
+
+    const itemsSchema = linesSchema.items as Record<string, unknown>;
+    assertEquals(itemsSchema.type, "object");
+    assertEquals(itemsSchema.additionalProperties, false);
+    assertEquals(
+      ((itemsSchema.required as string[]) ?? []).includes("sku"),
+      true,
+    );
+    assertEquals(
+      ((itemsSchema.required as string[]) ?? []).includes("qty"),
+      true,
+    );
+    assertEquals(
+      ((itemsSchema.required as string[]) ?? []).includes("unitPrice"),
+      true,
+    );
+
+    assertEquals(tool.annotations?.readOnlyHint, false);
+    assertEquals(tool.annotations?.destructiveHint, false);
+  }
+
+  // per-doc optional date fields present
+  assert(
+    "deliveryDate" in
+      ((SALES_ORDER_TOOLS.find((t) => t.name === "erp.sales_order_create")!
+        .inputSchema.properties) as Record<string, unknown>),
+  );
+  assert(
+    "validUntil" in
+      ((QUOTATION_TOOLS.find((t) => t.name === "erp.quotation_create")!
+        .inputSchema.properties) as Record<string, unknown>),
+  );
+  assert(
+    "dueDate" in
+      ((INVOICE_TOOLS.find((t) => t.name === "erp.sales_invoice_create")!
+        .inputSchema.properties) as Record<string, unknown>),
+  );
 });
 
 Deno.test("architecture slices — platform layer exposes ERP and MCP boundaries", () => {

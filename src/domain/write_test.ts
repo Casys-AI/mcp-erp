@@ -64,3 +64,23 @@ Deno.test("WRITE_CAPABILITIES — new CRUD-entity tools present on both ERPs", (
     );
   }
 });
+
+Deno.test("WRITE_CAPABILITIES — sales document tools present on both ERPs", () => {
+  const salesDocTools = [
+    "erp.sales_order_create",
+    "erp.quotation_create",
+    "erp.sales_invoice_create",
+  ];
+  for (const tool of salesDocTools) {
+    assertEquals(
+      WRITE_CAPABILITIES.erpnext.tools.includes(tool),
+      true,
+      `erpnext missing ${tool}`,
+    );
+    assertEquals(
+      WRITE_CAPABILITIES.dolibarr.tools.includes(tool),
+      true,
+      `dolibarr missing ${tool}`,
+    );
+  }
+});

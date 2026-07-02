@@ -12,6 +12,38 @@ const NATIVE_ID_SCHEMA = {
   description: "Native document identifier (ERPNext `name`, Dolibarr `id`).",
 };
 
+const LINES_SCHEMA = {
+  type: "array",
+  minItems: 1,
+  items: {
+    type: "object",
+    properties: {
+      sku: {
+        type: "string",
+        minLength: 1,
+        description: "Product SKU (item_code / ref).",
+      },
+      qty: {
+        type: "number",
+        exclusiveMinimum: 0,
+        description: "Quantity (must be > 0).",
+      },
+      unitPrice: {
+        type: "number",
+        minimum: 0,
+        description: "Unit price (must be >= 0).",
+      },
+      description: {
+        type: "string",
+        description: "Optional line description.",
+      },
+    },
+    required: ["sku", "qty", "unitPrice"],
+    additionalProperties: false,
+  },
+  description: "Line items (min 1).",
+};
+
 export const QUOTATION_TOOLS: readonly ErpToolDefinition[] = [
   {
     name: "erp.quotation_get",
@@ -27,5 +59,41 @@ export const QUOTATION_TOOLS: readonly ErpToolDefinition[] = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true },
+  },
+  {
+    name: "erp.quotation_create",
+    description:
+      "Create a quotation / commercial proposal (draft) in normalized form. mode 'preview' validates without writing; 'commit' writes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        erpType: ERP_TYPE_SCHEMA,
+        mode: {
+          type: "string",
+          enum: ["preview", "commit"],
+          description:
+            "Required. 'preview' resolves the payload without writing; 'commit' writes.",
+        },
+        customerId: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Customer identifier (ERPNext party_name, Dolibarr socid).",
+        },
+        lines: LINES_SCHEMA,
+        date: {
+          type: "string",
+          description:
+            "Document date (YYYY-MM-DD). Defaults to today when omitted.",
+        },
+        validUntil: {
+          type: "string",
+          description: "Validity date (YYYY-MM-DD). Must not be before date.",
+        },
+      },
+      required: ["erpType", "mode", "customerId", "lines"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false },
   },
 ];
