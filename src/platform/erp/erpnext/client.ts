@@ -284,6 +284,36 @@ export class FrappeRestClient {
     return result.data;
   }
 
+  /**
+   * Submit a Frappe document via `frappe.client.submit`.
+   *
+   * Convention: body is `{ doc: <object> }` sent as `application/json`.
+   * Frappe parses the JSON body directly when the content-type header is set,
+   * so the doc is received as a dict by the whitelisted Python function — no
+   * double-serialisation needed. The response carries the submitted doc in
+   * `message`.
+   */
+  async submitDoc(
+    doc: Record<string, unknown>,
+    requestOptions: FrappeRequestOptions = {},
+  ): Promise<Record<string, unknown>> {
+    const path = "/api/method/frappe.client.submit";
+    const result = await this.request<{ message: unknown }>(
+      "POST",
+      path,
+      path,
+      { ...requestOptions, body: JSON.stringify({ doc }) },
+    );
+    if (!result || !isRecord(result.message)) {
+      throw new FrappeApiError(
+        `ERPNext POST ${path} failed: malformed response: message must be an object`,
+        200,
+        result,
+      );
+    }
+    return result.message as Record<string, unknown>;
+  }
+
   async update<T extends FrappeDoc>(
     doctype: string,
     name: string,

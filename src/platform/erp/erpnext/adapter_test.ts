@@ -2991,6 +2991,289 @@ Deno.test("erpnext.sales_invoice_create — no name in response throws CREATE_FA
   }
 });
 
+// ── Increment 4: erpnext.*_submit ─────────────────────────────────────────────
+
+Deno.test("erpnext.sales_order_submit — preview returns committed:false with no HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_order_submit",
+      { mode: "preview", name: "SO-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Sales Order");
+    assertEquals(c.resolved.name, "SO-001");
+    assertEquals(c.resolved.doctype, "Sales Order");
+    assertEquals(c.resolved.method, "frappe.client.submit");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_submit — commit: GET doc then POST frappe.client.submit, body is object not string", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "SO-001",
+            docstatus: 0,
+            status: "Draft",
+            modified: "2026-07-02 12:00:00.000000",
+          },
+        },
+      }, // GET doc
+      {
+        status: 200,
+        body: {
+          message: {
+            name: "SO-001",
+            docstatus: 1,
+            status: "To Deliver and Bill",
+          },
+        },
+      }, // POST submit
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_order_submit",
+      { mode: "commit", name: "SO-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    // GET then POST — exactly 2 calls
+    assertEquals(captured.length, 2);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Sales%20Order/SO-001",
+    );
+    assertEquals(captured[1].method, "POST");
+    assertEquals(
+      captured[1].url.pathname,
+      "/api/method/frappe.client.submit",
+    );
+    assertEquals(captured[1].headers.get("content-type"), "application/json");
+    // body: {doc: <object>} — NOT {doc: "<stringified>"}
+    const submitBody = JSON.parse(captured[1].body as string);
+    assertEquals(typeof submitBody.doc, "object");
+    assertEquals(submitBody.doc.name, "SO-001");
+    assertEquals(submitBody.doc.docstatus, 0);
+    assertEquals(typeof submitBody.doc, "object");
+    // result
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      nativeId: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.doctype, "Sales Order");
+    assertEquals(c.nativeId, "SO-001");
+    assertEquals(c.resolved.docstatus, 1);
+    assertEquals(c.resolved.status, "To Deliver and Bill");
+    assertEquals(c.resolved.method, "frappe.client.submit");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_order_submit — HTTP 409 on submit propagated as FrappeApiError", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: { data: { name: "SO-001", docstatus: 0 } } },
+      { status: 409, body: { message: "TimestampMismatchError" } },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "erpnext.sales_order_submit",
+          { mode: "commit", name: "SO-001" },
+          { tenantId: "t", actorSubject: null },
+        ),
+      FrappeApiError,
+      "TimestampMismatchError",
+    );
+    assertEquals(err.status, 409);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.quotation_submit — preview returns committed:false with no HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.quotation_submit",
+      { mode: "preview", name: "QTN-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Quotation");
+    assertEquals(c.resolved.name, "QTN-001");
+    assertEquals(c.resolved.method, "frappe.client.submit");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.quotation_submit — commit: GET Quotation then POST frappe.client.submit", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "QTN-001",
+            docstatus: 0,
+            modified: "2026-07-02 12:00:00",
+          },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          message: { name: "QTN-001", docstatus: 1, status: "Submitted" },
+        },
+      },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.quotation_submit",
+      { mode: "commit", name: "QTN-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 2);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(captured[0].url.pathname, "/api/resource/Quotation/QTN-001");
+    assertEquals(captured[1].method, "POST");
+    assertEquals(captured[1].url.pathname, "/api/method/frappe.client.submit");
+    const submitBody = JSON.parse(captured[1].body as string);
+    assertEquals(submitBody.doc.name, "QTN-001");
+    const c = r.content as {
+      committed: boolean;
+      nativeId: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "QTN-001");
+    assertEquals(c.resolved.docstatus, 1);
+    assertEquals(c.resolved.status, "Submitted");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_submit — preview returns committed:false with no HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_invoice_submit",
+      { mode: "preview", name: "SINV-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Sales Invoice");
+    assertEquals(c.resolved.name, "SINV-001");
+    assertEquals(c.resolved.method, "frappe.client.submit");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erpnext.sales_invoice_submit — commit: GET SI then POST frappe.client.submit, docstatus 1 in result", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "SINV-001",
+            docstatus: 0,
+            modified: "2026-07-02 12:00:00",
+          },
+        },
+      },
+      {
+        status: 200,
+        body: { message: { name: "SINV-001", docstatus: 1, status: "Unpaid" } },
+      },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "erpnext.sales_invoice_submit",
+      { mode: "commit", name: "SINV-001" },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 2);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.pathname,
+      "/api/resource/Sales%20Invoice/SINV-001",
+    );
+    assertEquals(captured[1].method, "POST");
+    assertEquals(captured[1].url.pathname, "/api/method/frappe.client.submit");
+    const submitBody = JSON.parse(captured[1].body as string);
+    assertEquals(typeof submitBody.doc, "object");
+    assertEquals(submitBody.doc.name, "SINV-001");
+    const c = r.content as {
+      committed: boolean;
+      doctype: string;
+      nativeId: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.doctype, "Sales Invoice");
+    assertEquals(c.nativeId, "SINV-001");
+    assertEquals(c.resolved.docstatus, 1);
+    assertEquals(c.resolved.status, "Unpaid");
+  } finally {
+    restore();
+  }
+});
+
 Deno.test("erpnext.supplier_update — existing non-primary contact is promoted after update", async () => {
   const captured: CapturedFetch[] = [];
   const restore = mockFetchSequence(

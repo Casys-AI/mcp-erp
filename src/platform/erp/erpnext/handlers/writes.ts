@@ -347,6 +347,33 @@ export async function callErpnextWriteTool(
     };
   }
 
+  if (name === "erpnext.sales_order_submit") {
+    return await handleErpnextDocSubmit({
+      args,
+      ctx,
+      client,
+      doctype: "Sales Order",
+    });
+  }
+
+  if (name === "erpnext.quotation_submit") {
+    return await handleErpnextDocSubmit({
+      args,
+      ctx,
+      client,
+      doctype: "Quotation",
+    });
+  }
+
+  if (name === "erpnext.sales_invoice_submit") {
+    return await handleErpnextDocSubmit({
+      args,
+      ctx,
+      client,
+      doctype: "Sales Invoice",
+    });
+  }
+
   if (name === "erpnext.sales_invoice_create") {
     const mode = parseWriteMode(args);
     const customer = readRequiredString(args, "customer");
@@ -393,6 +420,63 @@ export async function callErpnextWriteTool(
   }
 
   return undefined;
+}
+
+/**
+ * Shared submit handler for ERPNext sales documents.
+ *
+ * Preview: returns the native plan (doctype/name/method) with no HTTP.
+ * Commit: GET full current doc → POST frappe.client.submit (embedded
+ * `modified` acts as the optimistic lock). The post-state (`docstatus` /
+ * `status`) is included in `resolved` so the normalised layer can map
+ * `lifecycleState`.
+ */
+async function handleErpnextDocSubmit(params: {
+  readonly args: Record<string, unknown>;
+  readonly ctx: ErpToolCallContext;
+  readonly client: FrappeRestClient;
+  readonly doctype: "Sales Order" | "Quotation" | "Sales Invoice";
+}): Promise<ErpToolCallResult> {
+  const { args, ctx, client, doctype } = params;
+  const mode = parseWriteMode(args);
+  const docName = readRequiredString(args, "name");
+
+  if (mode === "preview") {
+    return {
+      content: {
+        committed: false,
+        doctype,
+        resolved: {
+          doctype,
+          name: docName,
+          method: "frappe.client.submit",
+        },
+      },
+      summary: `Preview ERPNext ${doctype} submit (not written)`,
+    };
+  }
+
+  // commit: GET full doc (carries `modified` for optimistic lock) → submit
+  const doc = await client.get<Record<string, unknown>>(doctype, docName, {
+    signal: ctx.signal,
+  });
+  const submitted = await client.submitDoc(doc, { signal: ctx.signal });
+
+  return {
+    content: {
+      committed: true,
+      doctype,
+      nativeId: docName,
+      resolved: {
+        doctype,
+        name: docName,
+        method: "frappe.client.submit",
+        docstatus: submitted.docstatus,
+        status: submitted.status,
+      },
+    },
+    summary: `Submitted ERPNext ${doctype} ${docName}`,
+  };
 }
 
 function readNativeItemRows(
