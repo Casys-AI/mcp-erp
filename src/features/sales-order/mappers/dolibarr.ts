@@ -7,8 +7,10 @@ import { assertNativeId } from "../../../domain/normalized.ts";
 import { mapDolibarrDocData } from "../../../platform/erp/dolibarr/handlers/documents.ts";
 import type { DolibarrOrder } from "../../../platform/erp/dolibarr/types.ts";
 import type {
+  NativeSalesOrderSubmitPlan,
   NativeSalesOrderToolPlan,
   SalesDocumentLineInput,
+  SalesDocumentSubmitInput,
   SalesOrderCreateInput,
 } from "../../shared/sales-document.types.ts";
 
@@ -46,6 +48,26 @@ function mapLineToDolibarrLine(
   };
   if (l.description !== undefined) row.desc = l.description;
   return row;
+}
+
+// ── Submit mappers ────────────────────────────────────────────────────────────
+
+export type DolibarrSalesOrderSubmitPlan = NativeSalesOrderSubmitPlan<
+  "dolibarr.order_validate"
+>;
+
+/**
+ * Map a normalized SalesDocumentSubmitInput to a Dolibarr order-validate plan.
+ * @param id  Parsed positive integer from the normalized nativeId.
+ */
+export function mapSalesOrderSubmitToDolibarr(
+  input: SalesDocumentSubmitInput,
+  id: number,
+): DolibarrSalesOrderSubmitPlan {
+  return {
+    toolName: "dolibarr.order_validate",
+    args: { mode: input.mode, id },
+  };
 }
 
 export function normalizeDolibarrOrder(

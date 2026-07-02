@@ -3,8 +3,10 @@ import type { NormalizedPayload } from "../../../domain/normalized.ts";
 import { assertNativeId } from "../../../domain/normalized.ts";
 import type { ErpNextSalesInvoice } from "../../../platform/erp/erpnext/types.ts";
 import type {
+  NativeSalesInvoiceSubmitPlan,
   NativeSalesInvoiceToolPlan,
   SalesDocumentLineInput,
+  SalesDocumentSubmitInput,
   SalesInvoiceCreateInput,
 } from "../../shared/sales-document.types.ts";
 
@@ -38,6 +40,22 @@ function mapLineToErpNextItem(
   };
   if (l.description !== undefined) row.description = l.description;
   return row;
+}
+
+// ── Submit mappers ────────────────────────────────────────────────────────────
+
+export type ErpNextSalesInvoiceSubmitPlan = NativeSalesInvoiceSubmitPlan<
+  "erpnext.sales_invoice_submit"
+>;
+
+/** Map a normalized SalesDocumentSubmitInput to an ERPNext sales-invoice submit plan. */
+export function mapSalesInvoiceSubmitToErpNext(
+  input: SalesDocumentSubmitInput,
+): ErpNextSalesInvoiceSubmitPlan {
+  return {
+    toolName: "erpnext.sales_invoice_submit",
+    args: { mode: input.mode, name: input.nativeId },
+  };
 }
 
 export function normalizeErpNextSalesInvoice(

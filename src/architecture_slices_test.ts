@@ -21,10 +21,12 @@ import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
 import {
   mapSalesInvoiceCreateToDolibarr,
+  mapSalesInvoiceSubmitToDolibarr,
   normalizeDolibarrInvoice,
 } from "./features/invoice/mappers/dolibarr.ts";
 import {
   mapSalesInvoiceCreateToErpNext,
+  mapSalesInvoiceSubmitToErpNext,
   normalizeErpNextSalesInvoice,
 } from "./features/invoice/mappers/erpnext.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
@@ -34,19 +36,23 @@ import { mapProductCreateToErpNext } from "./features/product/mappers/erpnext.ts
 import { QUOTATION_TOOLS } from "./features/quotation/quotation.contract.ts";
 import {
   mapQuotationCreateToDolibarr,
+  mapQuotationSubmitToDolibarr,
   normalizeDolibarrProposal,
 } from "./features/quotation/mappers/dolibarr.ts";
 import {
   mapQuotationCreateToErpNext,
+  mapQuotationSubmitToErpNext,
   normalizeErpNextQuotation,
 } from "./features/quotation/mappers/erpnext.ts";
 import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.ts";
 import {
   mapSalesOrderCreateToDolibarr,
+  mapSalesOrderSubmitToDolibarr,
   normalizeDolibarrOrder,
 } from "./features/sales-order/mappers/dolibarr.ts";
 import {
   mapSalesOrderCreateToErpNext,
+  mapSalesOrderSubmitToErpNext,
   normalizeErpNextSalesOrder,
 } from "./features/sales-order/mappers/erpnext.ts";
 import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
@@ -774,4 +780,46 @@ Deno.test("architecture slices — sales document submit contracts have strict s
     assertEquals(tool.annotations?.readOnlyHint, false);
     assertEquals(tool.annotations?.destructiveHint, false);
   }
+});
+
+Deno.test("architecture slices — sales-order submit mappers produce correct native plans", () => {
+  const input = { mode: "commit" as const, nativeId: "SO-001" };
+
+  const erpNextPlan = mapSalesOrderSubmitToErpNext(input);
+  assertEquals(erpNextPlan.toolName, "erpnext.sales_order_submit");
+  assertEquals(erpNextPlan.args.mode, "commit");
+  assertEquals(erpNextPlan.args.name, "SO-001");
+  assertEquals("id" in erpNextPlan.args, false);
+
+  const dolibarrPlan = mapSalesOrderSubmitToDolibarr(input, 42);
+  assertEquals(dolibarrPlan.toolName, "dolibarr.order_validate");
+  assertEquals(dolibarrPlan.args.mode, "commit");
+  assertEquals(dolibarrPlan.args.id, 42);
+  assertEquals("name" in dolibarrPlan.args, false);
+});
+
+Deno.test("architecture slices — quotation submit mappers produce correct native plans", () => {
+  const input = { mode: "preview" as const, nativeId: "QTN-001" };
+
+  const erpNextPlan = mapQuotationSubmitToErpNext(input);
+  assertEquals(erpNextPlan.toolName, "erpnext.quotation_submit");
+  assertEquals(erpNextPlan.args.name, "QTN-001");
+
+  const dolibarrPlan = mapQuotationSubmitToDolibarr(input, 5);
+  assertEquals(dolibarrPlan.toolName, "dolibarr.proposal_validate");
+  assertEquals(dolibarrPlan.args.id, 5);
+  // proposals must NOT inject idwarehouse at the mapper level
+  assertEquals("idwarehouse" in dolibarrPlan.args, false);
+});
+
+Deno.test("architecture slices — sales-invoice submit mappers produce correct native plans", () => {
+  const input = { mode: "commit" as const, nativeId: "SINV-001" };
+
+  const erpNextPlan = mapSalesInvoiceSubmitToErpNext(input);
+  assertEquals(erpNextPlan.toolName, "erpnext.sales_invoice_submit");
+  assertEquals(erpNextPlan.args.name, "SINV-001");
+
+  const dolibarrPlan = mapSalesInvoiceSubmitToDolibarr(input, 77);
+  assertEquals(dolibarrPlan.toolName, "dolibarr.invoice_validate");
+  assertEquals(dolibarrPlan.args.id, 77);
 });

@@ -3,8 +3,10 @@ import type { NormalizedPayload } from "../../../domain/normalized.ts";
 import { assertNativeId } from "../../../domain/normalized.ts";
 import type { ErpNextSalesOrder } from "../../../platform/erp/erpnext/types.ts";
 import type {
+  NativeSalesOrderSubmitPlan,
   NativeSalesOrderToolPlan,
   SalesDocumentLineInput,
+  SalesDocumentSubmitInput,
   SalesOrderCreateInput,
 } from "../../shared/sales-document.types.ts";
 
@@ -42,6 +44,22 @@ function mapLineToErpNextItem(
   };
   if (l.description !== undefined) row.description = l.description;
   return row;
+}
+
+// ── Submit mappers ────────────────────────────────────────────────────────────
+
+export type ErpNextSalesOrderSubmitPlan = NativeSalesOrderSubmitPlan<
+  "erpnext.sales_order_submit"
+>;
+
+/** Map a normalized SalesDocumentSubmitInput to an ERPNext sales-order submit plan. */
+export function mapSalesOrderSubmitToErpNext(
+  input: SalesDocumentSubmitInput,
+): ErpNextSalesOrderSubmitPlan {
+  return {
+    toolName: "erpnext.sales_order_submit",
+    args: { mode: input.mode, name: input.nativeId },
+  };
 }
 
 export function normalizeErpNextSalesOrder(

@@ -2,7 +2,12 @@
  * TDD Red bar — NormalizedAdapter (Wave 3).
  */
 
-import { assertEquals, assertInstanceOf, assertRejects } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertInstanceOf,
+  assertRejects,
+} from "@std/assert";
 import type {
   ErpAdapter,
   ErpToolCallContext,
@@ -2050,5 +2055,274 @@ Deno.test("erp.supplier_update — dolibarr externalRef maps to code_fournisseur
     assertEquals("code_client" in body, false);
   } finally {
     restore();
+  }
+});
+
+// ─── Task D: erp.*_submit ─────────────────────────────────────────────────────
+
+Deno.test("erp.sales_order_submit — erpnext preview: no HTTP, committed:false, no lifecycleState", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_order_submit",
+      { erpType: "erpnext", mode: "preview", nativeId: "SO-001" },
+      CTX,
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals("lifecycleState" in c, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_submit — erpnext commit: GET + submit POST, lifecycleState mapped from status", async () => {
+  const captured: CapturedFetch[] = [];
+  // GET /api/resource/Sales Order/SO-001 → full doc
+  // POST /api/method/frappe.client.submit → submitted doc
+  const restore = mockFetchQueue(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "SO-001",
+            doctype: "Sales Order",
+            modified: "2026-07-02 12:00:00",
+            docstatus: 0,
+          },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          message: {
+            name: "SO-001",
+            doctype: "Sales Order",
+            docstatus: 1,
+            status: "To Deliver and Bill",
+          },
+        },
+      },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_order_submit",
+      { erpType: "erpnext", mode: "commit", nativeId: "SO-001" },
+      CTX,
+    );
+    assertEquals(captured.length, 2);
+    // First call: GET the doc (pathname is URL-encoded: "Sales%20Order")
+    assertEquals(captured[0].method, "GET");
+    assert(
+      decodeURIComponent(captured[0].url.pathname).includes("Sales Order"),
+    );
+    // Second call: POST submit method
+    assertEquals(captured[1].method, "POST");
+    assert(
+      decodeURIComponent(captured[1].url.pathname).includes(
+        "frappe.client.submit",
+      ),
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.lifecycleState, "open"); // "To Deliver and Bill" → "open"
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_submit — erpnext commit: docstatus 1 + status Submitted → lifecycleState validated", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchQueue(
+    [
+      {
+        status: 200,
+        body: {
+          data: {
+            name: "SO-002",
+            doctype: "Sales Order",
+            modified: "2026-07-02 12:00:00",
+            docstatus: 0,
+          },
+        },
+      },
+      {
+        status: 200,
+        body: {
+          message: {
+            name: "SO-002",
+            doctype: "Sales Order",
+            docstatus: 1,
+            status: "Submitted",
+          },
+        },
+      },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ erpnext: createErpnextTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_order_submit",
+      { erpType: "erpnext", mode: "commit", nativeId: "SO-002" },
+      CTX,
+    );
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.lifecycleState, "validated");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.quotation_submit — dolibarr commit: POST /proposals/{id}/validate, lifecycleState mapped from statut 1", async () => {
+  const captured: CapturedFetch[] = [];
+  // POST /proposals/5/validate → { statut: 1, ... }
+  const restore = mockFetch(
+    { status: 200, body: { statut: 1, id: 5 } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.quotation_submit",
+      { erpType: "dolibarr", mode: "commit", nativeId: "5" },
+      CTX,
+    );
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "POST");
+    assert(captured[0].url.pathname.includes("/proposals/5/validate"));
+    const reqBody = JSON.parse(captured[0].body as string);
+    // proposals must NOT send idwarehouse
+    assertEquals("idwarehouse" in reqBody, false);
+    assertEquals(reqBody.notrigger, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.lifecycleState, "open"); // statut:1 + kind:"proposal" → "open"
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_invoice_submit — dolibarr commit: lifecycleState mapped from statut 1", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { statut: 1, id: 77 } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_invoice_submit",
+      { erpType: "dolibarr", mode: "commit", nativeId: "77" },
+      CTX,
+    );
+    assertEquals(captured.length, 1);
+    assert(captured[0].url.pathname.includes("/invoices/77/validate"));
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, true);
+    assertEquals(c.lifecycleState, "open"); // statut:1 + kind:"invoice" → "open"
+    assertEquals(c.erpType, "dolibarr");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_submit — dolibarr INVALID_NATIVE_ID throws NormalizedError", async () => {
+  const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+  const { NormalizedError: NE } = await import("./domain/normalized.ts");
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.sales_order_submit",
+        { erpType: "dolibarr", mode: "commit", nativeId: "not-a-number" },
+        CTX,
+      ),
+    NE,
+  );
+  assertEquals(err.code, "INVALID_NATIVE_ID");
+});
+
+Deno.test("erp.sales_order_submit — dolibarr ALREADY_TRANSITIONED propagated", async () => {
+  // Dolibarr signals already-validated with HTTP 304 (null-body status code).
+  // `new Response(body, { status: 304 })` throws in Deno when body is non-null,
+  // so we create the Response with an empty body.
+  const original = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> =>
+    Promise.resolve(new Response(null, { status: 304 }));
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.sales_order_submit",
+          { erpType: "dolibarr", mode: "commit", nativeId: "10" },
+          CTX,
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "ALREADY_TRANSITIONED");
+    assertEquals((err.context as { docKind: string }).docKind, "orders");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("erp.quotation_submit — preview dolibarr: no HTTP, committed:false, no lifecycleState", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.quotation_submit",
+      { erpType: "dolibarr", mode: "preview", nativeId: "5" },
+      CTX,
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals("lifecycleState" in c, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.capabilities_describe — includes the 3 submit tools", async () => {
+  const a = new NormalizedAdapter({
+    erpnext: createErpnextTestAdapter(),
+    dolibarr: createDolibarrTestAdapter(),
+  });
+  for (const erpType of ["erpnext", "dolibarr"] as const) {
+    const r = await a.callTool(
+      "erp.capabilities_describe",
+      { erpType },
+      CTX,
+    );
+    const c = r.content as { supportedTools: string[] };
+    assertEquals(
+      c.supportedTools.includes("erp.sales_order_submit"),
+      true,
+      `${erpType}: missing sales_order_submit`,
+    );
+    assertEquals(
+      c.supportedTools.includes("erp.quotation_submit"),
+      true,
+      `${erpType}: missing quotation_submit`,
+    );
+    assertEquals(
+      c.supportedTools.includes("erp.sales_invoice_submit"),
+      true,
+      `${erpType}: missing sales_invoice_submit`,
+    );
   }
 });

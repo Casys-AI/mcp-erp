@@ -7,9 +7,11 @@ import { assertNativeId } from "../../../domain/normalized.ts";
 import { mapDolibarrDocData } from "../../../platform/erp/dolibarr/handlers/documents.ts";
 import type { DolibarrProposal } from "../../../platform/erp/dolibarr/types.ts";
 import type {
+  NativeQuotationSubmitPlan,
   NativeQuotationToolPlan,
   QuotationCreateInput,
   SalesDocumentLineInput,
+  SalesDocumentSubmitInput,
 } from "../../shared/sales-document.types.ts";
 
 // ── Write mappers ─────────────────────────────────────────────────────────────
@@ -47,6 +49,27 @@ function mapLineToDolibarrLine(
   };
   if (l.description !== undefined) row.desc = l.description;
   return row;
+}
+
+// ── Submit mappers ────────────────────────────────────────────────────────────
+
+export type DolibarrQuotationSubmitPlan = NativeQuotationSubmitPlan<
+  "dolibarr.proposal_validate"
+>;
+
+/**
+ * Map a normalized SalesDocumentSubmitInput to a Dolibarr proposal-validate plan.
+ * Proposals do NOT accept idwarehouse — handled by the native branch.
+ * @param id  Parsed positive integer from the normalized nativeId.
+ */
+export function mapQuotationSubmitToDolibarr(
+  input: SalesDocumentSubmitInput,
+  id: number,
+): DolibarrQuotationSubmitPlan {
+  return {
+    toolName: "dolibarr.proposal_validate",
+    args: { mode: input.mode, id },
+  };
 }
 
 export function normalizeDolibarrProposal(

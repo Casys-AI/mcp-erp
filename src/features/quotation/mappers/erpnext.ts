@@ -3,9 +3,11 @@ import type { NormalizedPayload } from "../../../domain/normalized.ts";
 import { assertNativeId } from "../../../domain/normalized.ts";
 import type { ErpNextQuotation } from "../../../platform/erp/erpnext/types.ts";
 import type {
+  NativeQuotationSubmitPlan,
   NativeQuotationToolPlan,
   QuotationCreateInput,
   SalesDocumentLineInput,
+  SalesDocumentSubmitInput,
 } from "../../shared/sales-document.types.ts";
 
 // ── Write mappers ─────────────────────────────────────────────────────────────
@@ -42,6 +44,22 @@ function mapLineToErpNextItem(
   };
   if (l.description !== undefined) row.description = l.description;
   return row;
+}
+
+// ── Submit mappers ────────────────────────────────────────────────────────────
+
+export type ErpNextQuotationSubmitPlan = NativeQuotationSubmitPlan<
+  "erpnext.quotation_submit"
+>;
+
+/** Map a normalized SalesDocumentSubmitInput to an ERPNext quotation submit plan. */
+export function mapQuotationSubmitToErpNext(
+  input: SalesDocumentSubmitInput,
+): ErpNextQuotationSubmitPlan {
+  return {
+    toolName: "erpnext.quotation_submit",
+    args: { mode: input.mode, name: input.nativeId },
+  };
 }
 
 export function normalizeErpNextQuotation(
