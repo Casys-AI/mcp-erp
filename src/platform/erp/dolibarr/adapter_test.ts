@@ -1885,3 +1885,646 @@ Deno.test("dolibarr.supplier_update — code_fournisseur in payload (not code_cl
     restore();
   }
 });
+
+// ── Increment 3 — Dolibarr native sales document creates (Task C) ─────────────
+
+function mockFetchSequence(
+  responses: Array<{ readonly status: number; readonly body: unknown }>,
+  captured: CapturedFetch[],
+): () => void {
+  const original = globalThis.fetch;
+  let callIndex = 0;
+
+  globalThis.fetch = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    captured.push({
+      url: new URL(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+
+    const resp = responses[callIndex];
+    if (resp === undefined) {
+      throw new Error(
+        `mockFetchSequence: unexpected extra call #${callIndex}`,
+      );
+    }
+    callIndex++;
+
+    return Promise.resolve(
+      new Response(JSON.stringify(resp.body), {
+        status: resp.status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+// Helper: compute expected epoch seconds from ISO date (UTC midnight)
+function epochSec(isoDate: string): number {
+  return Math.floor(new Date(`${isoDate}T00:00:00Z`).getTime() / 1000);
+}
+
+// ── preview = zero HTTP ───────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — preview returns committed:false without HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 1 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "preview",
+        socid: 42,
+        lines: [{ sku: "SKU-A", qty: 1, subprice: 100 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Order");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.socid, 42);
+    const previewLines = resolved.lines as Array<Record<string, unknown>>;
+    assertEquals(previewLines.length, 1);
+    assertEquals(previewLines[0].fk_product, "<resolved-at-commit>");
+    assertEquals(previewLines[0].qty, 1);
+    assertEquals(previewLines[0].subprice, 100);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_create — preview returns committed:false without HTTP", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 1 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.proposal_create",
+      {
+        mode: "preview",
+        socid: 42,
+        lines: [{ sku: "SKU-A", qty: 2, subprice: 50, desc: "Consulting" }],
+        date: "2026-01-10",
+        valid_until: "2026-02-10",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Proposal");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.socid, 42);
+    assertEquals(resolved.date, epochSec("2026-01-10"));
+    assertEquals(resolved.duree_validite, 31); // days between 2026-01-10 and 2026-02-10
+    const previewLines = resolved.lines as Array<Record<string, unknown>>;
+    assertEquals(previewLines[0].fk_product, "<resolved-at-commit>");
+    assertEquals(previewLines[0].desc, "Consulting");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_create — preview returns committed:false without HTTP and type:0", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 1 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.invoice_create",
+      {
+        mode: "preview",
+        socid: 7,
+        lines: [{ sku: "SKU-B", qty: 3, subprice: 200 }],
+        date: "2026-03-01",
+        due_date: "2026-03-31",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as Record<string, unknown>;
+    assertEquals(c.committed, false);
+    assertEquals(c.doctype, "Dolibarr Invoice");
+    const resolved = c.resolved as Record<string, unknown>;
+    assertEquals(resolved.type, 0);
+    assertEquals(resolved.date, epochSec("2026-03-01"));
+    assertEquals(resolved.date_lim_reglement, epochSec("2026-03-31"));
+  } finally {
+    restore();
+  }
+});
+
+// ── ISO → epoch conversion ────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — date is converted to epoch seconds (UTC midnight)", async () => {
+  const captured: CapturedFetch[] = [];
+  // GET /products → product found; POST /orders → id; POST /orders/id/lines → ok
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "0.000" }] },
+      { status: 200, body: 99 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "REF-001", qty: 1, subprice: 100 }],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const postDocBody = JSON.parse(captured[1].body as string);
+    assertEquals(postDocBody.date, epochSec("2026-01-15"));
+  } finally {
+    restore();
+  }
+});
+
+// ── SKU resolution order: GETs before POST doc ────────────────────────────────
+
+Deno.test("dolibarr.order_create — commit resolves all SKUs before POST doc", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "20.000" }] }, // GET /products (SKU-A)
+      { status: 200, body: [{ id: 6, tva_tx: "10.000" }] }, // GET /products (SKU-B)
+      { status: 200, body: 123 }, // POST /orders
+      { status: 200, body: 1 }, // POST /orders/123/lines (line 0)
+      { status: 200, body: 1 }, // POST /orders/123/lines (line 1)
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [
+          { sku: "SKU-A", qty: 1, subprice: 100 },
+          { sku: "SKU-B", qty: 2, subprice: 50 },
+        ],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // First 2 calls must be GETs (product resolution)
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.searchParams.get("sqlfilters"),
+      "(t.ref:=:'SKU-A')",
+    );
+    assertEquals(captured[1].method, "GET");
+    assertEquals(
+      captured[1].url.searchParams.get("sqlfilters"),
+      "(t.ref:=:'SKU-B')",
+    );
+    // Third call is POST /orders
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/index.php/orders");
+    // Then line POSTs
+    assertEquals(captured[3].method, "POST");
+    assertEquals(captured[3].url.pathname, "/api/index.php/orders/123/lines");
+    assertEquals(captured[4].method, "POST");
+    assertEquals(captured[4].url.pathname, "/api/index.php/orders/123/lines");
+  } finally {
+    restore();
+  }
+});
+
+// ── tva_tx propagation ────────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — tva_tx from product GET is sent on each line", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 7, tva_tx: "20.000" }] }, // product
+      { status: 200, body: 55 }, // POST /orders
+      { status: 200, body: 1 }, // POST /orders/55/lines
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "REF-VAT", qty: 1, subprice: 500 }],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const lineBody = JSON.parse(captured[2].body as string);
+    assertEquals(lineBody.fk_product, 7);
+    assertEquals(lineBody.tva_tx, "20.000");
+    assertEquals(lineBody.subprice, 500);
+    assertEquals(lineBody.qty, 1);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "55");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.order_create — product without tva_tx: no tva_tx sent on line", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 8 }] }, // product without tva_tx
+      { status: 200, body: 56 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [{ sku: "REF-NOTAX", qty: 1, subprice: 200 }],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const lineBody = JSON.parse(captured[2].body as string);
+    assertEquals("tva_tx" in lineBody, false);
+  } finally {
+    restore();
+  }
+});
+
+// ── LINE_PRODUCT_NOT_FOUND ────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — unknown SKU throws LINE_PRODUCT_NOT_FOUND before POST", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [] }, // GET /products → empty = not found
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.order_create",
+          {
+            mode: "commit",
+            socid: 42,
+            lines: [{ sku: "UNKNOWN-SKU", qty: 1, subprice: 100 }],
+            date: "2026-01-15",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "LINE_PRODUCT_NOT_FOUND");
+    assertEquals(err.context.sku, "UNKNOWN-SKU");
+    assertEquals(err.context.lineIndex, 0);
+    // Must not have reached POST /orders
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0].method, "GET");
+  } finally {
+    restore();
+  }
+});
+
+// ── LINES_FAILED partial failure ──────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — second line POST fails → LINES_FAILED with nativeId and attachedLines", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "20" }] }, // GET product SKU-A
+      { status: 200, body: [{ id: 6, tva_tx: "10" }] }, // GET product SKU-B
+      { status: 200, body: 123 }, // POST /orders
+      { status: 200, body: 1 }, // POST /orders/123/lines (line 0) — success
+      { status: 500, body: { error: { message: "DB error" } } }, // line 1 — fail
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.order_create",
+          {
+            mode: "commit",
+            socid: 42,
+            lines: [
+              { sku: "SKU-A", qty: 1, subprice: 100 },
+              { sku: "SKU-B", qty: 2, subprice: 50 },
+            ],
+            date: "2026-01-15",
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "LINES_FAILED");
+    assertEquals(err.context.nativeId, "123");
+    assertEquals(err.context.lineIndex, 1);
+    assertEquals(err.context.attachedLines, 1);
+  } finally {
+    restore();
+  }
+});
+
+// ── Payload shapes ────────────────────────────────────────────────────────────
+
+Deno.test("dolibarr.order_create — commit payload: socid, epoch date, epoch delivery_date", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "10" }] },
+      { status: 200, body: 77 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 9,
+        lines: [{ sku: "SKU-X", qty: 1, subprice: 150 }],
+        date: "2026-06-01",
+        delivery_date: "2026-06-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const docBody = JSON.parse(captured[1].body as string);
+    assertEquals(docBody.socid, 9);
+    assertEquals(docBody.date, epochSec("2026-06-01"));
+    assertEquals(docBody.delivery_date, epochSec("2026-06-15"));
+    assertEquals("lines" in docBody, false); // lines NOT in doc payload
+    assertEquals(captured[1].url.pathname, "/api/index.php/orders");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_create — commit payload: duree_validite derived from valid_until", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 10, tva_tx: "20" }] },
+      { status: 200, body: 88 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_create",
+      {
+        mode: "commit",
+        socid: 3,
+        lines: [{ sku: "SVC-001", qty: 1, subprice: 800 }],
+        date: "2026-03-01",
+        valid_until: "2026-04-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const docBody = JSON.parse(captured[1].body as string);
+    assertEquals(docBody.socid, 3);
+    assertEquals(docBody.date, epochSec("2026-03-01"));
+    assertEquals(docBody.duree_validite, 31); // days from 2026-03-01 to 2026-04-01
+    assertEquals("fin_validite" in docBody, false); // must NOT be sent
+    assertEquals("lines" in docBody, false);
+    assertEquals(captured[1].url.pathname, "/api/index.php/proposals");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.invoice_create — commit payload: type:0, epoch dates", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 11, tva_tx: "20" }] },
+      { status: 200, body: 99 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    const r = await adapter.callTool(
+      "dolibarr.invoice_create",
+      {
+        mode: "commit",
+        socid: 5,
+        lines: [{ sku: "ITEM-1", qty: 2, subprice: 300 }],
+        date: "2026-04-01",
+        due_date: "2026-04-30",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const docBody = JSON.parse(captured[1].body as string);
+    assertEquals(docBody.type, 0);
+    assertEquals(docBody.socid, 5);
+    assertEquals(docBody.date, epochSec("2026-04-01"));
+    assertEquals(docBody.date_lim_reglement, epochSec("2026-04-30"));
+    assertEquals("lines" in docBody, false);
+    assertEquals(captured[1].url.pathname, "/api/index.php/invoices");
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "99");
+  } finally {
+    restore();
+  }
+});
+
+// ── Distinct SKU resolution: same sku used twice → only one GET ───────────────
+
+Deno.test("dolibarr.order_create — repeated SKU resolved only once", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "20" }] }, // one GET for SKU-A
+      { status: 200, body: 100 }, // POST /orders
+      { status: 200, body: 1 }, // line 0
+      { status: 200, body: 1 }, // line 1
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 42,
+        lines: [
+          { sku: "SKU-A", qty: 1, subprice: 100 },
+          { sku: "SKU-A", qty: 2, subprice: 100 }, // same sku
+        ],
+        date: "2026-01-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // Only 1 GET for the deduped sku
+    const gets = captured.filter((c) => c.method === "GET");
+    assertEquals(gets.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+// ── INVALID_DATE_RANGE ────────────────────────────────────────────────────────
+
+Deno.test("dolibarr.proposal_create — valid_until before date throws INVALID_DATE_RANGE", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: 1 }, captured);
+  try {
+    const adapter = createTestAdapter();
+    const err = await assertRejects(
+      () =>
+        adapter.callTool(
+          "dolibarr.proposal_create",
+          {
+            mode: "commit",
+            socid: 42,
+            lines: [{ sku: "X", qty: 1, subprice: 100 }],
+            date: "2026-06-01",
+            valid_until: "2026-05-01", // before date
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "INVALID_DATE_RANGE");
+    assertEquals(err.context.field, "valid_until");
+    assertEquals(err.context.date, "2026-06-01");
+    assertEquals(err.context.validUntil, "2026-05-01");
+    assertEquals(captured.length, 0); // no HTTP at all
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("dolibarr.proposal_create — valid_until same as date → duree_validite:0 (not an error)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 3, tva_tx: "10" }] },
+      { status: 200, body: 50 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_create",
+      {
+        mode: "preview",
+        socid: 1,
+        lines: [{ sku: "X", qty: 1, subprice: 10 }],
+        date: "2026-06-01",
+        valid_until: "2026-06-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // Preview = no HTTP
+    assertEquals(captured.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+// ── Lines contain desc in commit payload when provided ────────────────────────
+
+Deno.test("dolibarr.proposal_create — line desc forwarded to addDocumentLine", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 12, tva_tx: "5.500" }] },
+      { status: 200, body: 70 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.proposal_create",
+      {
+        mode: "commit",
+        socid: 2,
+        lines: [{ sku: "SVC-X", qty: 1, subprice: 900, desc: "Audit" }],
+        date: "2026-05-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    const lineBody = JSON.parse(captured[2].body as string);
+    assertEquals(lineBody.desc, "Audit");
+    assertEquals(lineBody.tva_tx, "5.500");
+  } finally {
+    restore();
+  }
+});
+
+// ── Single-quote escaping in sqlfilters ───────────────────────────────────────
+
+Deno.test("dolibarr.order_create — SKU with single quote is escaped in sqlfilters", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchSequence(
+    [
+      { status: 200, body: [{ id: 20, tva_tx: "0" }] },
+      { status: 200, body: 200 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const adapter = createTestAdapter();
+    await adapter.callTool(
+      "dolibarr.order_create",
+      {
+        mode: "commit",
+        socid: 1,
+        lines: [{ sku: "O'REILLY", qty: 1, subprice: 10 }],
+        date: "2026-01-01",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(
+      captured[0].url.searchParams.get("sqlfilters"),
+      "(t.ref:=:'O''REILLY')",
+    );
+  } finally {
+    restore();
+  }
+});
