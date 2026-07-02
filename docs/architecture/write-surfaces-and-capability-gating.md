@@ -286,6 +286,148 @@ occurred or that ERPNext stores emails in a linked doctype. This is the
 agnostic-surface promise: same tool, same fields, provider-specific complexity
 stays inside the adapter.
 
+## Increment 3 — sales document creates (design)
+
+Status: **design fact-checked 2026-07-02 (Codex VRAI/FAUX/NUANCE pass against
+primary sources — ERPNext DocType JSONs/controllers, Dolibarr API classes and
+business classes; corrections applied below).** Three new normalized write
+tools, both ERPs, create-only:
+
+- `erp.sales_order_create` — ERPNext `Sales Order` / Dolibarr `POST /orders`
+- `erp.quotation_create` — ERPNext `Quotation` / Dolibarr `POST /proposals`
+- `erp.sales_invoice_create` — ERPNext `Sales Invoice` / Dolibarr
+  `POST /invoices`
+
+### Scope decisions
+
+1. **Create-only, draft-only.** Documents are created in the ERP's draft state
+   (ERPNext `docstatus: 0`; Dolibarr `statut: 0`). Lifecycle moves
+   (submit/validate/cancel) are the next increment. Document _update_ is
+   deferred entirely: line-item update semantics diverge too much (ERPNext
+   replaces the whole child table on PUT; Dolibarr exposes per-line PUT/DELETE
+   subresources) to normalize safely now.
+2. **Same write grammar as increments 1–2.** Required
+   `mode: "preview"|"commit"`, result always carries `committed`, structured
+   `WriteError`s, capability gating via `WRITE_CAPABILITIES`, native creates
+   stay internal to `callTool` (never listed in `tools()`).
+3. **Lines are product-referenced.** Each line requires a `sku` (the cross-ERP
+   product identifier: ERPNext `item_code` _is_ the Item's `name`; Dolibarr
+   `ref` is unique). Free-text lines (no product) exist only on Dolibarr —
+   deferred; the common core is product lines.
+4. **`unitPrice` is required per line.** Neither ERP's implicit pricing (ERPNext
+   price lists, Dolibarr product default price is _not_ auto-applied by the REST
+   API) is deterministic across tenants. AX "Explicit Over Implicit": the agent
+   states the price; the ERP computes the totals. We never send computed totals.
+5. **No `currency` on the MVP** (tenant/customer default applies), consistent
+   with `product_create`.
+6. **Totals are read back, never sent.** The commit result echoes the
+   ERP-computed totals inside `resolved`/raw where available.
+
+### Normalized schema (common to the three tools)
+
+| Normalized field      | Required                        | ERPNext                                                              | Dolibarr                                     |
+| --------------------- | ------------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
+| `mode`                | yes                             | —                                                                    | —                                            |
+| `customerId`          | yes                             | `customer` (Customer `name`; `party_name` +                          | `socid` (strict integer id, same validation  |
+|                       |                                 | `quotation_to: "Customer"` on Quotation)                             | as other Dolibarr ids)                       |
+| `lines[]`             | yes, min 1                      | `items` child table                                                  | `lines` array                                |
+| `lines[].sku`         | yes                             | `item_code`                                                          | resolved `ref` → `fk_product` (GET products) |
+| `lines[].qty`         | yes, > 0                        | `qty`                                                                | `qty`                                        |
+| `lines[].unitPrice`   | yes                             | `rate`                                                               | `subprice`                                   |
+| `lines[].description` | no                              | `description`                                                        | `desc`                                       |
+| `date`                | no (adapter/ERP default: today) | `transaction_date` (SO/QTN) / `posting_date` (INV)                   | `date` (always sent, epoch seconds)          |
+| `deliveryDate`        | SO: ERPNext-required            | `delivery_date` (**required by ERPNext**, doc-level, copied to rows) | `delivery_date` (optional)                   |
+| `validUntil`          | QTN only, no                    | `valid_till`                                                         | derived `duree_validite` (days)              |
+| `dueDate`             | INV only, no                    | `due_date`                                                           | `date_lim_reglement`                         |
+
+Dates are ISO `YYYY-MM-DD` on the normalized surface; the Dolibarr adapter
+converts to the API's expected representation (timestamps where required).
+
+### Provider-specific mappings (fact-checked 2026-07-02)
+
+**ERPNext** (sources: `sales_order.json`/`.py`, `quotation.json`,
+`sales_invoice.json`/`.py`, child-table JSONs, Frappe REST docs):
+
+- `POST /api/resource/:doctype` with inline `items: [...]` is supported and
+  creates the document in `docstatus: 0` (draft).
+- Sales Order `reqd`: `customer`, `items`, `transaction_date` (default `Today`),
+  `company`. `delivery_date` is not `reqd` on the parent DocType, but the
+  controller validation requires a delivery date on the parent **or** on every
+  row, and copies the parent date onto rows — we send it doc-level.
+- Quotation: the party is `quotation_to: "Customer"` + `party_name` (there is no
+  `customer` field). `valid_till` optional.
+- Sales Invoice: `posting_date` is `reqd` with default `Today`; `due_date` is
+  computed from payment terms when absent; `due_date < posting_date` is rejected
+  by the ERP.
+- **`company` is `reqd` and NOT reliably defaulted through the API** (its
+  default is `remember_last_selected_value`, a UI mechanism). New optional
+  tenant config `defaultCompany` on the ERPNext connection: injected when
+  present; when absent we omit the field and let instance-level Frappe defaults
+  apply, surfacing the ERP's structured error otherwise. Documented in
+  `capabilities_describe`.
+- Instance-dependent defaults (price list, currency, income account, cost
+  center) can still reject a minimal POST on a misconfigured tenant; those
+  errors surface as structured ERP errors — no extra tenant config in this
+  increment.
+- `rate` provided explicitly is preserved (not overwritten by price lists).
+
+**Dolibarr** (sources: `api_orders/proposals/invoices.class.php`,
+`commande/propal/facture.class.php`, `DoliDB.class.php`,
+`api_products.class.php`):
+
+- **Lines are NOT accepted inline on POST** — the `lines` blocks in the three
+  API classes are commented out. The create flow is two-phase: `POST /orders`
+  (or `/proposals`, `/invoices`) → then `POST /{id}/lines` per line. A line
+  failure after the document POST leaves a recoverable draft → structured
+  `LINES_FAILED` with `nativeId`, the failing `lineIndex`, and the count of
+  lines already attached (same partial-failure doctrine as `CONTACT_FAILED`).
+- **Dates are unix timestamps** on the wire (the REST module does not convert
+  `YYYY-MM-DD`). The adapter converts ISO → epoch seconds (UTC midnight). `date`
+  is required on order and proposal creates (`Propal::create` fails on empty
+  date); when the agent omits `date`, the adapter resolves "today" and always
+  sends it explicitly on all three documents (uniform, matches ERPNext's
+  server-side `Today` default).
+- `validUntil` cannot be sent as `fin_validite`: `Propal::create()` recomputes
+  `fin_validite = date + duree_validite * 86400`. The adapter derives
+  `duree_validite` (whole days between `date` and `validUntil`; fast-fail
+  `INVALID_DATE_RANGE` if `validUntil < date`).
+- Order delivery date maps to the modern `delivery_date` property (not the
+  deprecated `date_livraison` alias).
+- Invoice `type` omitted defaults to `TYPE_STANDARD` (0) — we send `type: 0`
+  explicitly.
+- Orders are created in `STATUS_DRAFT` (0); invoices as drafts too.
+- **`sku` resolution at COMMIT time only**: one
+  `GET /products?sqlfilters=(t.ref:=:'SKU')` per distinct sku (syntax verified;
+  `GET /products/ref/{ref}` exists as an alternative). Preview stays HTTP-free
+  and echoes `fk_product: "<resolved-at-commit>"` (same placeholder pattern as
+  the ERPNext Contact `<pending>` link). Unknown sku → structured
+  `LINE_PRODUCT_NOT_FOUND` with the failing line index.
+- **VAT strategy (explicit)**: `tva_tx` omitted on `addline` ends up as 0 on
+  several code paths — a silent-zero trap. The same product GET used for
+  fk_product resolution carries the product's `tva_tx`; the adapter sends the
+  product's VAT rate on each line (matches Dolibarr UI behavior, zero extra
+  HTTP). ERPNext taxes remain template/instance-driven — out of the normalized
+  surface, documented.
+
+### New structured errors
+
+- `EMPTY_LINES` — `lines` missing or empty (boundary fast-fail).
+- `INVALID_LINE` — line missing `sku`/`qty`/`unitPrice`, or non-positive `qty`
+  (context carries the line index).
+- `MISSING_REQUIRED_FIELD` — e.g. `deliveryDate` absent on `sales_order_create`
+  against ERPNext (field is optional in the normalized schema, required by that
+  ERP → same capability-gated pattern as increment 1 fields).
+- `LINE_PRODUCT_NOT_FOUND` — Dolibarr sku resolution failed at commit.
+- `LINES_FAILED` — Dolibarr two-phase create: document created but a
+  `POST /{id}/lines` failed; context carries `nativeId`, the failing
+  `lineIndex`, and `attachedLines` (the draft is recoverable in the ERP).
+- `INVALID_DATE_RANGE` — e.g. `validUntil < date` (needed to derive Dolibarr
+  `duree_validite`), or ERP-rejected `dueDate < date`.
+
+`capabilities_describe` gains the three tools in `supportedTools` and their
+per-ERP `supportedFields` (e.g. `deliveryDate` required-on-erpnext surfaced
+there).
+
 ## Deferred (out of current scope)
 
 - Best-of-breed superset interface (own-ERP phase).
@@ -293,9 +435,8 @@ stays inside the adapter.
   `tenant + tool + key + payload-hash`, shared store for stateless
   multi-instance). Removed from the MVP because no native ERP support;
   reintroduce only when backed by a real dedup store.
-- Transactional documents with line items: sales order, sales invoice, and
-  quotation/proposal creates — multi-line bodies, computed totals, and lifecycle
-  awareness.
+- Sales document **update** (line-item update semantics diverge: ERPNext
+  child-table PUT vs Dolibarr per-line subresources) and free-text lines.
 - Document lifecycle actions: `submit`, `cancel`, `validate` (Frappe
   `frappe.client.submit` / `frappe.client.cancel`; Dolibarr `/validate`
   endpoints).
