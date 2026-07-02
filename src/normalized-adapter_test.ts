@@ -56,6 +56,42 @@ function mockFetch(
   };
 }
 
+/**
+ * Multi-response mock — returns responses in sequence (last entry repeated
+ * if the queue is exhausted).
+ */
+function mockFetchQueue(
+  responses: ReadonlyArray<{ readonly status: number; readonly body: unknown }>,
+  captured: CapturedFetch[],
+): () => void {
+  const original = globalThis.fetch;
+  let index = 0;
+  globalThis.fetch = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    captured.push({
+      url: new URL(url),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      signal: init?.signal instanceof AbortSignal ? init.signal : null,
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    const resp = responses[index] ?? responses[responses.length - 1];
+    index++;
+    return Promise.resolve(
+      new Response(JSON.stringify(resp.body), {
+        status: resp.status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
 function createErpnextTestAdapter(itemGroup?: string, stockUom?: string) {
   return createErpnextAdapter({
     erpType: "erpnext",
@@ -1518,6 +1554,400 @@ Deno.test("erp.product_update — uom on dolibarr throws UNSUPPORTED_FIELD", asy
     assertEquals((err.context as { field: string }).field, "uom");
   } finally {
     restore();
+  }
+});
+
+// ─── Task D: erp.sales_order_create ──────────────────────────────────────────
+
+Deno.test("erp.sales_order_create — erpnext preview: no HTTP, committed:false", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({
+      erpnext: createErpnextTestAdapter("All Items", "Nos"),
+    });
+    const r = await a.callTool(
+      "erp.sales_order_create",
+      {
+        erpType: "erpnext",
+        mode: "preview",
+        customerId: "CUST-001",
+        lines: [{ sku: "ITEM-1", qty: 2, unitPrice: 100 }],
+        date: "2026-07-10",
+        deliveryDate: "2026-07-20",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as { committed: boolean; erpType: string };
+    assertEquals(c.committed, false);
+    assertEquals(c.erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_create — erpnext MISSING_REQUIRED_FIELD deliveryDate", async () => {
+  const restore = mockFetch({ status: 200, body: {} }, []);
+  try {
+    const a = new NormalizedAdapter({
+      erpnext: createErpnextTestAdapter("All Items", "Nos"),
+    });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.sales_order_create",
+          {
+            erpType: "erpnext",
+            mode: "commit",
+            customerId: "CUST-001",
+            lines: [{ sku: "ITEM-1", qty: 1, unitPrice: 50 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "MISSING_REQUIRED_FIELD");
+    assertEquals((err.context as { field: string }).field, "deliveryDate");
+    assertEquals((err.context as { erpType: string }).erpType, "erpnext");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_create — EMPTY_LINES throws WriteError", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.sales_order_create",
+        {
+          erpType: "erpnext",
+          mode: "preview",
+          customerId: "CUST-001",
+          lines: [],
+          deliveryDate: "2026-07-20",
+        },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "EMPTY_LINES");
+});
+
+Deno.test("erp.sales_order_create — INVALID_LINE qty=0 throws WriteError", async () => {
+  const a = new NormalizedAdapter({ erpnext: mockErpnextAdapter });
+  const err = await assertRejects(
+    () =>
+      a.callTool(
+        "erp.sales_order_create",
+        {
+          erpType: "erpnext",
+          mode: "preview",
+          customerId: "CUST-001",
+          lines: [{ sku: "X", qty: 0, unitPrice: 10 }],
+          deliveryDate: "2026-07-20",
+        },
+        CTX,
+      ),
+    WriteError,
+  );
+  assertEquals(err.code, "INVALID_LINE");
+  assertEquals((err.context as { field: string }).field, "qty");
+});
+
+Deno.test("erp.sales_order_create — dolibarr commit: resolve sku, POST order, POST line", async () => {
+  const captured: CapturedFetch[] = [];
+  // 1. GET /products?sqlfilters=... → [{id:7, tva_tx:"20.000"}]
+  // 2. POST /orders → 42
+  // 3. POST /orders/42/lines → 1
+  const restore = mockFetchQueue(
+    [
+      { status: 200, body: [{ id: 7, tva_tx: "20.000", ref: "SKU-A" }] },
+      { status: 200, body: 42 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_order_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        customerId: "7",
+        lines: [{ sku: "SKU-A", qty: 3, unitPrice: 25, description: "Bolt" }],
+        date: "2026-07-10",
+        deliveryDate: "2026-07-25",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    // Verify 3-call sequence
+    assertEquals(captured.length, 3);
+    assertEquals(captured[0].method, "GET");
+    assertEquals(
+      captured[0].url.searchParams.get("sqlfilters"),
+      "(t.ref:=:'SKU-A')",
+    );
+    assertEquals(captured[1].method, "POST");
+    assertEquals(captured[1].url.pathname, "/api/index.php/orders");
+    const orderBody = JSON.parse(captured[1].body as string);
+    assertEquals(orderBody.socid, 7);
+    assertEquals(captured[2].method, "POST");
+    assertEquals(captured[2].url.pathname, "/api/index.php/orders/42/lines");
+    const lineBody = JSON.parse(captured[2].body as string);
+    assertEquals(lineBody.fk_product, 7);
+    assertEquals(lineBody.qty, 3);
+    assertEquals(lineBody.subprice, 25);
+    assertEquals(lineBody.desc, "Bolt");
+    assertEquals(lineBody.tva_tx, "20.000");
+
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "dolibarr");
+    assertEquals(c.nativeId, "42");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_order_create — dolibarr LINE_PRODUCT_NOT_FOUND propagated", async () => {
+  const restore = mockFetchQueue(
+    [{ status: 200, body: [] }], // product not found
+    [],
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const err = await assertRejects(
+      () =>
+        a.callTool(
+          "erp.sales_order_create",
+          {
+            erpType: "dolibarr",
+            mode: "commit",
+            customerId: "7",
+            lines: [{ sku: "UNKNOWN-SKU", qty: 1, unitPrice: 10 }],
+          },
+          { tenantId: "t", actorSubject: null },
+        ),
+      WriteError,
+    );
+    assertEquals(err.code, "LINE_PRODUCT_NOT_FOUND");
+    assertEquals((err.context as { sku: string }).sku, "UNKNOWN-SKU");
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task D: erp.quotation_create ────────────────────────────────────────────
+
+Deno.test("erp.quotation_create — erpnext preview: party_name sent (not customer)", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({
+      erpnext: createErpnextTestAdapter("All Items", "Nos"),
+    });
+    const r = await a.callTool(
+      "erp.quotation_create",
+      {
+        erpType: "erpnext",
+        mode: "preview",
+        customerId: "PROSPECT-001",
+        lines: [{ sku: "SVC-1", qty: 1, unitPrice: 500 }],
+        date: "2026-07-01",
+        validUntil: "2026-07-31",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      resolved: Record<string, unknown>;
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.resolved.party_name, "PROSPECT-001");
+    assertEquals("customer" in c.resolved, false);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.quotation_create — dolibarr commit happy path", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchQueue(
+    [
+      { status: 200, body: [{ id: 5, tva_tx: "0", ref: "SVC-A" }] },
+      { status: 200, body: 99 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.quotation_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        customerId: "12",
+        lines: [{ sku: "SVC-A", qty: 2, unitPrice: 300 }],
+        date: "2026-07-01",
+        validUntil: "2026-07-15",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[1].url.pathname, "/api/index.php/proposals");
+    const proposalBody = JSON.parse(captured[1].body as string);
+    assertEquals(proposalBody.socid, 12);
+    // duree_validite = 14 days
+    assertEquals(proposalBody.duree_validite, 14);
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "99");
+  } finally {
+    restore();
+  }
+});
+
+// ─── Task D: erp.sales_invoice_create ────────────────────────────────────────
+
+Deno.test("erp.sales_invoice_create — erpnext commit maps fields correctly", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch(
+    { status: 200, body: { data: { name: "SINV-007" } } },
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({
+      erpnext: createErpnextTestAdapter("All Items", "Nos"),
+    });
+    const r = await a.callTool(
+      "erp.sales_invoice_create",
+      {
+        erpType: "erpnext",
+        mode: "commit",
+        customerId: "CUST-003",
+        lines: [{ sku: "ITEM-Y", qty: 2, unitPrice: 75 }],
+        date: "2026-07-05",
+        dueDate: "2026-08-05",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[0].method, "POST");
+    // URL-encoded: "Sales Invoice" → "Sales%20Invoice"
+    assertEquals(
+      decodeURIComponent(captured[0].url.pathname),
+      "/api/resource/Sales Invoice",
+    );
+    const body = JSON.parse(captured[0].body as string);
+    assertEquals(body.customer, "CUST-003");
+    assertEquals(body.posting_date, "2026-07-05");
+    assertEquals(body.due_date, "2026-08-05");
+    assertEquals(body.items, [{ item_code: "ITEM-Y", qty: 2, rate: 75 }]);
+    const c = r.content as {
+      committed: boolean;
+      erpType: string;
+      nativeId: string;
+    };
+    assertEquals(c.committed, true);
+    assertEquals(c.erpType, "erpnext");
+    assertEquals(c.nativeId, "SINV-007");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_invoice_create — dolibarr commit with due_date", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetchQueue(
+    [
+      { status: 200, body: [{ id: 9, tva_tx: "20", ref: "SKU-INV" }] },
+      { status: 200, body: 77 },
+      { status: 200, body: 1 },
+    ],
+    captured,
+  );
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_invoice_create",
+      {
+        erpType: "dolibarr",
+        mode: "commit",
+        customerId: "33",
+        lines: [{ sku: "SKU-INV", qty: 1, unitPrice: 200 }],
+        date: "2026-07-05",
+        dueDate: "2026-08-05",
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured[1].url.pathname, "/api/index.php/invoices");
+    const invBody = JSON.parse(captured[1].body as string);
+    assertEquals(invBody.socid, 33);
+    assertEquals(invBody.type, 0);
+    // date_lim_reglement should be epoch for 2026-08-05
+    assertEquals(
+      invBody.date_lim_reglement,
+      Math.floor(new Date("2026-08-05T00:00:00Z").getTime() / 1000),
+    );
+    const c = r.content as { committed: boolean; nativeId: string };
+    assertEquals(c.committed, true);
+    assertEquals(c.nativeId, "77");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.sales_invoice_create — dolibarr preview: no HTTP, fk_product placeholder", async () => {
+  const captured: CapturedFetch[] = [];
+  const restore = mockFetch({ status: 200, body: {} }, captured);
+  try {
+    const a = new NormalizedAdapter({ dolibarr: createDolibarrTestAdapter() });
+    const r = await a.callTool(
+      "erp.sales_invoice_create",
+      {
+        erpType: "dolibarr",
+        mode: "preview",
+        customerId: "33",
+        lines: [{ sku: "SKU-INV", qty: 1, unitPrice: 200 }],
+      },
+      { tenantId: "t", actorSubject: null },
+    );
+    assertEquals(captured.length, 0);
+    const c = r.content as {
+      committed: boolean;
+      resolved: { lines: Array<Record<string, unknown>> };
+    };
+    assertEquals(c.committed, false);
+    assertEquals(c.resolved.lines[0].fk_product, "<resolved-at-commit>");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("erp.capabilities_describe — includes the 3 new sales doc tools", async () => {
+  const a = new NormalizedAdapter({
+    erpnext: createErpnextTestAdapter(),
+    dolibarr: createDolibarrTestAdapter(),
+  });
+  for (const erpType of ["erpnext", "dolibarr"] as const) {
+    const r = await a.callTool(
+      "erp.capabilities_describe",
+      { erpType },
+      CTX,
+    );
+    const c = r.content as { supportedTools: string[] };
+    assertEquals(c.supportedTools.includes("erp.sales_order_create"), true);
+    assertEquals(c.supportedTools.includes("erp.quotation_create"), true);
+    assertEquals(c.supportedTools.includes("erp.sales_invoice_create"), true);
   }
 });
 

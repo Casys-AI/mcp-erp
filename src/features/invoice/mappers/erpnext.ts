@@ -2,6 +2,43 @@ import { mapErpNextLifecycle } from "../../../domain/lifecycle.ts";
 import type { NormalizedPayload } from "../../../domain/normalized.ts";
 import { assertNativeId } from "../../../domain/normalized.ts";
 import type { ErpNextSalesInvoice } from "../../../platform/erp/erpnext/types.ts";
+import type {
+  NativeSalesInvoiceToolPlan,
+  SalesDocumentLineInput,
+  SalesInvoiceCreateInput,
+} from "../../shared/sales-document.types.ts";
+
+// ── Write mappers ─────────────────────────────────────────────────────────────
+
+export type ErpNextSalesInvoiceCreatePlan = NativeSalesInvoiceToolPlan<
+  "erpnext.sales_invoice_create"
+>;
+
+/** Map a normalized SalesInvoiceCreateInput to an ERPNext native tool plan. */
+export function mapSalesInvoiceCreateToErpNext(
+  input: SalesInvoiceCreateInput,
+): ErpNextSalesInvoiceCreatePlan {
+  const args: Record<string, unknown> = {
+    mode: input.mode,
+    customer: input.customerId,
+    items: input.lines.map(mapLineToErpNextItem),
+  };
+  if (input.date !== undefined) args.posting_date = input.date;
+  if (input.dueDate !== undefined) args.due_date = input.dueDate;
+  return { toolName: "erpnext.sales_invoice_create", args };
+}
+
+function mapLineToErpNextItem(
+  l: SalesDocumentLineInput,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    item_code: l.sku,
+    qty: l.qty,
+    rate: l.unitPrice,
+  };
+  if (l.description !== undefined) row.description = l.description;
+  return row;
+}
 
 export function normalizeErpNextSalesInvoice(
   raw: ErpNextSalesInvoice,

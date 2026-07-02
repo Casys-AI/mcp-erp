@@ -6,6 +6,47 @@ import type {
 import { assertNativeId } from "../../../domain/normalized.ts";
 import { mapDolibarrDocData } from "../../../platform/erp/dolibarr/handlers/documents.ts";
 import type { DolibarrOrder } from "../../../platform/erp/dolibarr/types.ts";
+import type {
+  NativeSalesOrderToolPlan,
+  SalesDocumentLineInput,
+  SalesOrderCreateInput,
+} from "../../shared/sales-document.types.ts";
+
+// ── Write mappers ─────────────────────────────────────────────────────────────
+
+export type DolibarrSalesOrderCreatePlan = NativeSalesOrderToolPlan<
+  "dolibarr.order_create"
+>;
+
+/**
+ * Map a normalized SalesOrderCreateInput + parsed socid to a Dolibarr native
+ * tool plan. ISO dates are passed as-is; the native handler converts to epoch.
+ */
+export function mapSalesOrderCreateToDolibarr(
+  input: SalesOrderCreateInput,
+  socid: number,
+): DolibarrSalesOrderCreatePlan {
+  const args: Record<string, unknown> = {
+    mode: input.mode,
+    socid,
+    lines: input.lines.map(mapLineToDolibarrLine),
+  };
+  if (input.date !== undefined) args.date = input.date;
+  if (input.deliveryDate !== undefined) args.delivery_date = input.deliveryDate;
+  return { toolName: "dolibarr.order_create", args };
+}
+
+function mapLineToDolibarrLine(
+  l: SalesDocumentLineInput,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    sku: l.sku,
+    qty: l.qty,
+    subprice: l.unitPrice,
+  };
+  if (l.description !== undefined) row.desc = l.description;
+  return row;
+}
 
 export function normalizeDolibarrOrder(
   raw: DolibarrOrder,

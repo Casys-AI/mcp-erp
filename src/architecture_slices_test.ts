@@ -19,18 +19,36 @@ import {
 } from "./features/customer/mappers/erpnext.ts";
 import { INVOICE_TOOLS } from "./features/invoice/invoice.contract.ts";
 import { callInvoiceTool } from "./features/invoice/invoice.handler.ts";
-import { normalizeDolibarrInvoice } from "./features/invoice/mappers/dolibarr.ts";
-import { normalizeErpNextSalesInvoice } from "./features/invoice/mappers/erpnext.ts";
+import {
+  mapSalesInvoiceCreateToDolibarr,
+  normalizeDolibarrInvoice,
+} from "./features/invoice/mappers/dolibarr.ts";
+import {
+  mapSalesInvoiceCreateToErpNext,
+  normalizeErpNextSalesInvoice,
+} from "./features/invoice/mappers/erpnext.ts";
 import { PRODUCT_TOOLS } from "./features/product/product.contract.ts";
 import { callProductTool } from "./features/product/product.handler.ts";
 import { mapProductCreateToDolibarr } from "./features/product/mappers/dolibarr.ts";
 import { mapProductCreateToErpNext } from "./features/product/mappers/erpnext.ts";
 import { QUOTATION_TOOLS } from "./features/quotation/quotation.contract.ts";
-import { normalizeDolibarrProposal } from "./features/quotation/mappers/dolibarr.ts";
-import { normalizeErpNextQuotation } from "./features/quotation/mappers/erpnext.ts";
+import {
+  mapQuotationCreateToDolibarr,
+  normalizeDolibarrProposal,
+} from "./features/quotation/mappers/dolibarr.ts";
+import {
+  mapQuotationCreateToErpNext,
+  normalizeErpNextQuotation,
+} from "./features/quotation/mappers/erpnext.ts";
 import { SALES_ORDER_TOOLS } from "./features/sales-order/sales-order.contract.ts";
-import { normalizeDolibarrOrder } from "./features/sales-order/mappers/dolibarr.ts";
-import { normalizeErpNextSalesOrder } from "./features/sales-order/mappers/erpnext.ts";
+import {
+  mapSalesOrderCreateToDolibarr,
+  normalizeDolibarrOrder,
+} from "./features/sales-order/mappers/dolibarr.ts";
+import {
+  mapSalesOrderCreateToErpNext,
+  normalizeErpNextSalesOrder,
+} from "./features/sales-order/mappers/erpnext.ts";
 import { callQuotationTool } from "./features/quotation/quotation.handler.ts";
 import { callSalesOrderTool } from "./features/sales-order/sales-order.handler.ts";
 import { SUPPLIER_TOOLS } from "./features/supplier/supplier.contract.ts";
@@ -485,6 +503,157 @@ Deno.test("architecture slices — sales document create contracts have strict s
       ((INVOICE_TOOLS.find((t) => t.name === "erp.sales_invoice_create")!
         .inputSchema.properties) as Record<string, unknown>),
   );
+});
+
+Deno.test("architecture slices — sales_order_create mappers produce correct native plans", () => {
+  // ERPNext: customer, delivery_date (req), items, transaction_date
+  const erpnextPlan = mapSalesOrderCreateToErpNext({
+    mode: "commit",
+    customerId: "CUST-001",
+    lines: [
+      { sku: "ITEM-1", qty: 2, unitPrice: 100, description: "Widget" },
+      { sku: "ITEM-2", qty: 1, unitPrice: 50 },
+    ],
+    date: "2026-07-10",
+    deliveryDate: "2026-07-20",
+  });
+  assertEquals(erpnextPlan.toolName, "erpnext.sales_order_create");
+  assertEquals(erpnextPlan.args.mode, "commit");
+  assertEquals(erpnextPlan.args.customer, "CUST-001");
+  assertEquals(erpnextPlan.args.delivery_date, "2026-07-20");
+  assertEquals(erpnextPlan.args.transaction_date, "2026-07-10");
+  assertEquals(erpnextPlan.args.items, [
+    { item_code: "ITEM-1", qty: 2, rate: 100, description: "Widget" },
+    { item_code: "ITEM-2", qty: 1, rate: 50 },
+  ]);
+
+  // Dolibarr: socid, lines (sku/qty/subprice/desc), date, delivery_date
+  const dolibarrPlan = mapSalesOrderCreateToDolibarr(
+    {
+      mode: "commit",
+      customerId: "7",
+      lines: [{ sku: "REF-1", qty: 3, unitPrice: 25, description: "Vis" }],
+      date: "2026-07-10",
+      deliveryDate: "2026-07-30",
+    },
+    7,
+  );
+  assertEquals(dolibarrPlan.toolName, "dolibarr.order_create");
+  assertEquals(dolibarrPlan.args.mode, "commit");
+  assertEquals(dolibarrPlan.args.socid, 7);
+  assertEquals(dolibarrPlan.args.date, "2026-07-10");
+  assertEquals(dolibarrPlan.args.delivery_date, "2026-07-30");
+  assertEquals(dolibarrPlan.args.lines, [
+    { sku: "REF-1", qty: 3, subprice: 25, desc: "Vis" },
+  ]);
+
+  // No date → key absent (native handler defaults to today)
+  const planNoDate = mapSalesOrderCreateToDolibarr(
+    {
+      mode: "preview",
+      customerId: "7",
+      lines: [{ sku: "REF-1", qty: 1, unitPrice: 10 }],
+    },
+    7,
+  );
+  assertEquals("date" in planNoDate.args, false);
+  assertEquals("delivery_date" in planNoDate.args, false);
+});
+
+Deno.test("architecture slices — quotation_create mappers produce correct native plans", () => {
+  // ERPNext Quotation uses party_name (not customer)
+  const erpnextPlan = mapQuotationCreateToErpNext({
+    mode: "preview",
+    customerId: "PROSPECT-001",
+    lines: [{ sku: "SVC-1", qty: 1, unitPrice: 500 }],
+    date: "2026-07-01",
+    validUntil: "2026-07-31",
+  });
+  assertEquals(erpnextPlan.toolName, "erpnext.quotation_create");
+  assertEquals(erpnextPlan.args.party_name, "PROSPECT-001");
+  assertEquals("customer" in erpnextPlan.args, false);
+  assertEquals(erpnextPlan.args.transaction_date, "2026-07-01");
+  assertEquals(erpnextPlan.args.valid_till, "2026-07-31");
+  assertEquals(erpnextPlan.args.items, [
+    { item_code: "SVC-1", qty: 1, rate: 500 },
+  ]);
+
+  // Dolibarr proposal: valid_until (ISO, native derives duree_validite)
+  const dolibarrPlan = mapQuotationCreateToDolibarr(
+    {
+      mode: "commit",
+      customerId: "12",
+      lines: [{ sku: "REF-A", qty: 2, unitPrice: 80 }],
+      date: "2026-07-01",
+      validUntil: "2026-07-15",
+    },
+    12,
+  );
+  assertEquals(dolibarrPlan.toolName, "dolibarr.proposal_create");
+  assertEquals(dolibarrPlan.args.socid, 12);
+  assertEquals(dolibarrPlan.args.valid_until, "2026-07-15");
+  assertEquals(dolibarrPlan.args.lines, [
+    { sku: "REF-A", qty: 2, subprice: 80 },
+  ]);
+});
+
+Deno.test("architecture slices — sales_invoice_create mappers produce correct native plans", () => {
+  // ERPNext Invoice: customer, posting_date, due_date
+  const erpnextPlan = mapSalesInvoiceCreateToErpNext({
+    mode: "commit",
+    customerId: "CUST-002",
+    lines: [{ sku: "ITEM-X", qty: 5, unitPrice: 20, description: "Parts" }],
+    date: "2026-07-05",
+    dueDate: "2026-08-05",
+  });
+  assertEquals(erpnextPlan.toolName, "erpnext.sales_invoice_create");
+  assertEquals(erpnextPlan.args.customer, "CUST-002");
+  assertEquals(erpnextPlan.args.posting_date, "2026-07-05");
+  assertEquals(erpnextPlan.args.due_date, "2026-08-05");
+  assertEquals(erpnextPlan.args.items, [
+    { item_code: "ITEM-X", qty: 5, rate: 20, description: "Parts" },
+  ]);
+
+  // Dolibarr invoice: due_date ISO (native converts to date_lim_reglement epoch)
+  const dolibarrPlan = mapSalesInvoiceCreateToDolibarr(
+    {
+      mode: "commit",
+      customerId: "33",
+      lines: [{ sku: "REF-Z", qty: 1, unitPrice: 150 }],
+      date: "2026-07-05",
+      dueDate: "2026-08-05",
+    },
+    33,
+  );
+  assertEquals(dolibarrPlan.toolName, "dolibarr.invoice_create");
+  assertEquals(dolibarrPlan.args.socid, 33);
+  assertEquals(dolibarrPlan.args.date, "2026-07-05");
+  assertEquals(dolibarrPlan.args.due_date, "2026-08-05");
+  assertEquals(dolibarrPlan.args.lines, [{
+    sku: "REF-Z",
+    qty: 1,
+    subprice: 150,
+  }]);
+
+  // No dueDate → key absent
+  const planNoDue = mapSalesInvoiceCreateToDolibarr(
+    {
+      mode: "preview",
+      customerId: "33",
+      lines: [{ sku: "REF-Z", qty: 1, unitPrice: 150 }],
+    },
+    33,
+  );
+  assertEquals("due_date" in planNoDue.args, false);
+});
+
+Deno.test("architecture slices — WRITE_CAPABILITIES includes the 3 new sales document tools", () => {
+  for (const erpType of ["erpnext", "dolibarr"] as const) {
+    const tools = WRITE_CAPABILITIES[erpType].tools;
+    assertEquals(tools.includes("erp.sales_order_create"), true);
+    assertEquals(tools.includes("erp.quotation_create"), true);
+    assertEquals(tools.includes("erp.sales_invoice_create"), true);
+  }
 });
 
 Deno.test("architecture slices — platform layer exposes ERP and MCP boundaries", () => {
