@@ -1,0 +1,26 @@
+name: Test
+
+# Quality gate for @casys/mcp-erp. Runs on every PR and on every push to main,
+# so `publish.yml` never ships a version that fails fmt/lint/type-check/tests.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # `deno task check` already chains fmt --check, lint and deno check.
+      - name: Format, lint and type check
+        run: deno task check
+
+      - name: Tests
+        run: deno task test
