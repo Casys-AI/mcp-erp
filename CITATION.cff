@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "mcp-erp: ERP-agnostic MCP adapter layer — drop-in adapters for ERPNext, Dolibarr, and more. Designed to be embedded in a multi-tenant MCP server."
+authors:
+  - family-names: Pesle
+    given-names: Erwan Lee
+year: 2026
+license: MIT
+repository-code: https://github.com/Casys-AI/mcp-erp
+type: software
